@@ -118,6 +118,6 @@ def mock_tmle_update_inputs() -> Dict[str, Any]:
     return mock_inputs
 
 
-# if __name__ == "__main__":
-#     mock_inputs = get_mock_input_data()
-#     mock_initial_estimates = get_mock_initial_estimates(mock_inputs)
+if __name__ == "__main__":
+     mock_inputs = get_mock_input_data()
+     mock_initial_estimates = get_mock_initial_estimates(mock_inputs)
