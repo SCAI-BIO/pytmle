@@ -3,9 +3,9 @@ import seaborn as sns
 import numpy as np
 import pandas as pd
 
-from get_initial_estimates import *
-from get_influence_curve import *
-from tmle_update import *
+from pytmle.get_initial_estimates import get_initial_estimate
+from pytmle.get_influence_curve import get_eic, get_norm_pn_eic
+from pytmle.tmle_update import print_one_step_diagnostics, do_tmle_update
 
 def do_pytmle(data_table, target_time, target_event, regime, cv_folds, model, max_update_iter, 
               one_step_eps, min_nuisance, verbose=False, g_comp=False, return_models=False):
