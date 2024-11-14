@@ -8,7 +8,7 @@ from sklearn.linear_model import LogisticRegression
 from sksurv.linear_model import CoxPHSurvivalAnalysis
 from sksurv.util import Surv
 
-from pytmle.estimates import InitialEstimates
+from pytmle.estimates import InitialEstimates, UpdatedEstimates
 
 
 def get_mock_input_data(n_samples: int = 1000) -> pd.DataFrame:
@@ -26,8 +26,14 @@ def get_mock_input_data(n_samples: int = 1000) -> pd.DataFrame:
     df = pd.DataFrame(data)
     return df
 
+def calculate_g_star_obs(propensity_scores, observed_treatment):
+    # Select only the probability of treatment=1
+    treatment_prob = propensity_scores[:, 1]
+    # Adjust based on observed treatment
+    g_star_obs = np.where(observed_treatment == 1, treatment_prob, 1 - treatment_prob)
+    return g_star_obs
 
-def get_mock_initial_estimates(df: pd.DataFrame) -> Dict[int, InitialEstimates]:
+def get_mock_initial_estimates(df: pd.DataFrame) -> Dict[int, UpdatedEstimates]:
     # Columns of 0s and 1s for potential outcomes
     df["group_1"] = 1
     df["group_0"] = 0
@@ -37,6 +43,8 @@ def get_mock_initial_estimates(df: pd.DataFrame) -> Dict[int, InitialEstimates]:
     treatment_model.fit(df[["x1", "x2", "x3"]], df["group"])
     propensity_scores = treatment_model.predict_proba(df[["x1", "x2", "x3"]])
     propensity_scores[df["group"] == 0] = 1 - propensity_scores[df["group"] == 0]
+
+    g_star_obs = calculate_g_star_obs(propensity_scores, df["group"])
 
     # Estimate censoring survival function using Cox regression from scikit-survival
     # Create structured arrays for survival analysis
@@ -84,28 +92,30 @@ def get_mock_initial_estimates(df: pd.DataFrame) -> Dict[int, InitialEstimates]:
     event_2_hazards_1 = np.diff(event_2_cum_hazards_1, prepend=0)
     event_2_hazards_0 = np.diff(event_2_cum_hazards_0, prepend=0)
 
-    initial_estimates_1 = InitialEstimates(
+    initial_estimates_1 = UpdatedEstimates(
         propensity_scores=propensity_scores[:, 1],
         censoring_survival_function=censoring_survival_function_1,
         event_free_survival_function=np.exp(
             -(event_1_cum_hazards_1 + event_2_cum_hazards_1)
         ),
         hazards=np.stack((event_1_hazards_1, event_2_hazards_1), axis=-1),
+        g_star_obs=g_star_obs,
     )
-    initial_estimates_0 = InitialEstimates(
+    initial_estimates_0 = UpdatedEstimates(
         propensity_scores=propensity_scores[:, 0],
         censoring_survival_function=censoring_survival_function_0,
         event_free_survival_function=np.exp(
             -(event_1_cum_hazards_0 + event_2_cum_hazards_0)
         ),
         hazards=np.stack((event_1_hazards_0, event_2_hazards_0), axis=-1),
+        g_star_obs=1 - g_star_obs
     )
 
     initial_estimates = {0: initial_estimates_0, 1: initial_estimates_1}
     return initial_estimates
 
 
-@pytest.fixture()
+#@pytest.fixture()
 def mock_tmle_update_inputs() -> Dict[str, Any]:
     # create mock initial estimates for testing, using default n_samples of 1000
     df = get_mock_input_data()
@@ -115,6 +125,12 @@ def mock_tmle_update_inputs() -> Dict[str, Any]:
         "event_times": df["event_time"].values,
         "event_indicator": df["event_indicator"].values,
     }
+
+    hazard_times = sorted(set([float(num) for num in mock_inputs["event_times"]] + mock_inputs["target_times"]))
+    max_target_time = max(mock_inputs["target_times"])
+
+    mock_inputs["times"] = [0] + [time for time in hazard_times if time <= max_target_time]
+    
     return mock_inputs
 
 

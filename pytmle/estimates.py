@@ -9,6 +9,7 @@ class InitialEstimates:
     hazards: np.ndarray
     event_free_survival_function: np.ndarray
     censoring_survival_function: np.ndarray
+    g_star_obs: np.ndarray
 
     def __post_init__(self):
         if not (
@@ -16,6 +17,7 @@ class InitialEstimates:
             == len(self.hazards)
             == len(self.event_free_survival_function)
             == len(self.censoring_survival_function)
+            == len(self.g_star_obs)
         ):
             raise RuntimeError(
                 f"All initial estimates must have the same first dimension, got ({len(self.propensity_scores)}, {len(self.hazards)}, {len(self.event_free_survival_function)}, {len(self.censoring_survival_function)})"
