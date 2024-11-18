@@ -89,24 +89,31 @@ def get_ic(g_star, hazards, total_surv, nuisance_weight, target_event, target_ti
     # Initialize results list
     ic_results = []
 
+    eval_times = np.array(eval_times)  # Ensure eval_times is a numpy array
+
     for j in target_event:
         # Calculate the cumulative incidence function for the current event
         print("hazards[j] \n", hazards[j].shape)
         print("total_surv \n", total_surv.shape)
-        f_j_t = np.cumsum(hazards[j] * total_surv, axis=0)
+        f_j_t = np.cumsum(hazards[...,j] * total_surv, axis=0)
         
+
         for tau in target_time:
             # The event-related (F(t) and S(t)) contributions to the clever covariate (h)
-            h_fs = np.tile(f_j_t[eval_times == tau, :], (np.sum(eval_times <= tau), 1))
-            h_fs = (h_fs - f_j_t[eval_times <= tau, :]) / total_surv[eval_times <= tau, :]
+            tau = np.array(tau) if isinstance(tau, list) else tau  # Ensure tau is scalar
+            
+            tau_idx = np.where(eval_times == tau)[0][0]
+            leq_tau_idx = np.where(eval_times <= tau)[0]
+            h_fs = np.tile(f_j_t[tau_idx, :], (len(leq_tau_idx), 1))
+            h_fs = (h_fs - f_j_t[leq_tau_idx, :]) / total_surv[leq_tau_idx, :]
             
             # Calculate IC for this particular (j, tau) pair
             ic_j_tau = []
 
-            for l, hazard_l in hazards.items():
+            for l, hazard_l in enumerate(hazards):
                 clev_cov = get_clever_covariate(
                     g_star=g_star,
-                    nuisance_weight=nuisance_weight[eval_times <= tau, :],
+                    nuisance_weight=nuisance_weight[:len(eval_times[eval_times <= tau]), :],
                     h_fs=h_fs,
                     leq_j=int(l == j)
                 )
@@ -115,18 +122,24 @@ def get_ic(g_star, hazards, total_surv, nuisance_weight, target_event, target_ti
                 nlds = np.zeros_like(h_fs)
                 for i, time in enumerate(t_tilde):
                     if delta[i] == l and time <= tau:
-                        nlds[np.where(eval_times == time)[0][0], i] = 1
+                        if i < nlds.shape[1]:
+                            nlds[np.where(eval_times == time)[0][0], i] = 1
                 
                 haz_ls = get_haz_ls(
                     t_tilde=t_tilde,
                     eval_times=eval_times[eval_times <= tau],
-                    haz_l=hazard_l[eval_times <= tau, :]
+                    haz_l=hazard_l[:len(eval_times[eval_times <= tau]), :]
                 )
                 
                 # Sum contributions for IC
-                ic_j_tau.append(np.sum(clev_cov * (nlds - haz_ls), axis=0))
+                print("nlds \n", nlds.shape)
+                print("haz_ls \n", haz_ls.shape)
+                print("clev_cov \n", clev_cov.shape)
+                expanded_haz_ls = np.tile(haz_ls, (1, (nlds.shape[1] // haz_ls.shape[1]) + 1))[:, :nlds.shape[1]]
+                ic_j_tau.append(np.sum(clev_cov * (nlds - expanded_haz_ls), axis=0))
             
-            ic_j_tau = np.sum(ic_j_tau, axis=0) + f_j_t[eval_times == tau, :] - np.mean(f_j_t[eval_times == tau, :])
+            tau_idx = np.where(eval_times == tau)[0][0]
+            ic_j_tau = np.sum(ic_j_tau, axis=0) + f_j_t[tau_idx, :] - np.mean(f_j_t[tau_idx, :])
             
             # Check for overflow (NaNs)
             if np.any(np.isnan(ic_j_tau)):
