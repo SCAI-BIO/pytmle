@@ -1,89 +1,95 @@
+from typing import List, Dict
 import numpy as np
 import pandas as pd
 
+from pytmle.estimates import UpdatedEstimates
 
-def get_eic(estimates, data, regime, target_event, target_time, min_nuisance, g_comp=False):
+
+def get_eic(
+    estimates: Dict[int, UpdatedEstimates],
+    event_times: np.ndarray,
+    event_indicator: np.ndarray,
+    g_comp: bool = False,
+) -> Dict[int, UpdatedEstimates]:
     """
     Calculate the Efficient Influence Curve (EIC) and G-computation estimates if specified.
 
     Args:
-        estimates (list): List of dictionaries containing estimates for each regime.
-        data (dict): Dictionary with data attributes like event time and type.
-        regime (str): Treatment or exposure regime to evaluate.
-        target_event (int or list of int): Target event type(s) for which to calculate EIC.
-        target_time (int or list of int): Target time point(s) for the EIC.
-        min_nuisance (float): Minimum value for nuisance parameters to avoid overflow.
-        g_comp (bool): If True, calculates the G-computation estimate. Defaults to False.
+        estimates (dict): Dictionary of UpdatedEstimates objects with current estimates.
+        event_times (numpy.ndarray): Array of event times.
+        event_indicator (numpy.ndarray): Array of event indicators (censoring is 0).
+        g_comp (bool): Flag to calculate G-computation estimates in addition to EIC.
 
     Returns:
-        list: Updated estimates with Efficient Influence Curve and, if specified, G-computation estimates.
+        dict: Updated estimates with Efficient Influence Curve and, if specified, G-computation estimates.
     """
-    eval_times = estimates.get("times")
-    t_tilde = data.get("event_time")
-    delta = data.get("event_indicator")
 
-    for a, estimate in estimates["initial_estimates"].items():
+    for a, estimate in estimates.items():
         nuisance_weight = estimate.nuisance_weight
         g_star = estimate.g_star_obs
         hazards = estimate.hazards
         total_surv = estimate.event_free_survival_function
 
-    # Call getIC function with the extracted parameters
+        # Call getIC function with the extracted parameters
         ic_a = get_ic(
             g_star=g_star,
             hazards=hazards,
             total_surv=total_surv,
-            nuisance_weight=nuisance_weight,
-            target_event=target_event,
-            target_time=target_time,
-            t_tilde=t_tilde,
-            delta=delta,
-            eval_times=eval_times,
-            g_comp=g_comp
+            nuisance_weight=nuisance_weight,  # type: ignore
+            target_events=estimate.target_events,  # type: ignore
+            target_time=estimate.target_times,  # type: ignore
+            t_tilde=event_times,
+            delta=event_indicator,
+            eval_times=estimate.times,
         )
 
-    # Conditional assignment for g_compEst
-    if g_comp:
-        estimate["g_comp_est"] = get_g_comp(eval_times, hazards, total_surv, target_time)
-
-    # Assign SummEIC and IC to the estimate
-    estimate["summ_eic"] = summarize_ic(ic_a)
-    estimate["ic_a"] = ic_a
-
         # Store G-computation estimate if requested
-    if g_comp:
-        estimate["g_comp_est"] = get_g_comp(eval_times, hazards, total_surv, target_time)
+        if g_comp:
+            estimate.g_comp_est = get_g_comp(
+                eval_times=estimate.times,
+                hazards=hazards,
+                total_surv=total_surv,
+                target_time=estimate.target_times,  # type: ignore
+            )
 
-        # Store summarized EIC and raw IC in estimates
-        estimate["summ_eic"] = summarize_ic(ic_a)
-        estimate["ic"] = ic_a
+        # Assign SummEIC and IC to the estimate
+        estimate.summ_eic = summarize_ic(ic_a)
+        estimate.ic = ic_a
 
     return estimates
 
-def get_ic(g_star, hazards, total_surv, nuisance_weight, target_event, target_time, 
-           t_tilde, delta, eval_times, g_comp):
+
+def get_ic(
+    g_star: np.ndarray,
+    hazards: np.ndarray,
+    total_surv: np.ndarray,
+    nuisance_weight: np.ndarray,
+    target_events: List[int],
+    target_time: List[float],
+    t_tilde: np.ndarray,
+    delta: np.ndarray,
+    eval_times: np.ndarray,
+):
     """
-    Calculates the influence curve (IC) for a target cumulative incidence function (CIF) 
+    Calculates the influence curve (IC) for a target cumulative incidence function (CIF)
     based on given event hazards and survival functions over time.
-    
+
     Args:
-        g_star (array-like): Intervention vector, typically binary or numeric.
-        hazards (dict): Dictionary where each key is an event type, and each value is a hazard 
-            matrix with rows as time points and columns as instances.
-        total_surv (array-like): Survival probabilities over time for each instance.
-        nuisance_weight (array-like): Nuisance weights over evaluation times for each instance.
-        target_event (list): List of target events to evaluate in the influence curve.
+        g_star (numpy.ndarray): Intervention vector for each instance.
+        hazards (numpy.ndarray): Hazard matrix with rows as instances and columns as time points.
+        total_surv (numpy.ndarray): Survival probabilities over time for each instance and time point.
+        nuisance_weight (numpy.ndarray): Nuisance weights matrix for each instance and time point.
+        target_events (list): List of target event types to evaluate in the influence curve.
         target_time (list): List of target times to evaluate in the influence curve.
-        t_tilde (array-like): Observed times for each instance.
-        delta (array-like): Event indicators for each instance, with unique events specified as integers.
-        eval_times (array-like): Evaluation times for the cumulative incidence functions.
-        g_comp (array-like): G-computation estimate for each instance.
-        
+        t_tilde (numpy.ndarray): Observed times for each instance.
+        delta (numpy.ndarray): Event indicators for each instance.
+        eval_times (numpy.ndarray): Evaluation times for calculating the influence curve.
+
     Returns:
         DataFrame: The resulting influence curve (IC) as a DataFrame with columns for ID, time, event, and IC values.
     """
-    #target = pd.DataFrame([(tau, j) for tau in target_time for j in target_event], columns=["Time", "Event"])
-    #unique_events = sorted(set(delta)) - {0}
+    # target = pd.DataFrame([(tau, j) for tau in target_time for j in target_events], columns=["Time", "Event"])
+    # unique_events = sorted(set(delta)) - {0}
     g_star = np.array(g_star).flatten()
 
     # Initialize results list
@@ -91,74 +97,79 @@ def get_ic(g_star, hazards, total_surv, nuisance_weight, target_event, target_ti
 
     eval_times = np.array(eval_times)  # Ensure eval_times is a numpy array
 
-    for j in target_event:
+    for j in target_events:
         # Calculate the cumulative incidence function for the current event
-        print("hazards[j] \n", hazards[j].shape)
-        print("total_surv \n", total_surv.shape)
-        f_j_t = np.cumsum(hazards[...,j] * total_surv, axis=0)
-        
+        # print("hazards[j] \n", hazards[j].shape)
+        # print("total_surv \n", total_surv.shape)
+        f_j_t = np.cumsum(hazards[..., j - 1] * total_surv, axis=1)
 
         for tau in target_time:
             # The event-related (F(t) and S(t)) contributions to the clever covariate (h)
-            tau = np.array(tau) if isinstance(tau, list) else tau  # Ensure tau is scalar
-            
             tau_idx = np.where(eval_times == tau)[0][0]
             leq_tau_idx = np.where(eval_times <= tau)[0]
-            h_fs = np.tile(f_j_t[tau_idx, :], (len(leq_tau_idx), 1))
-            h_fs = (h_fs - f_j_t[leq_tau_idx, :]) / total_surv[leq_tau_idx, :]
-            
+            h_fs = np.tile(f_j_t[:, tau_idx, np.newaxis], (1, len(leq_tau_idx)))
+            h_fs = (h_fs - f_j_t[:, leq_tau_idx]) / total_surv[:, leq_tau_idx]
+
             # Calculate IC for this particular (j, tau) pair
             ic_j_tau = []
 
-            for l, hazard_l in enumerate(hazards):
+            for l in range(hazards.shape[-1]):
                 clev_cov = get_clever_covariate(
                     g_star=g_star,
-                    nuisance_weight=nuisance_weight[:len(eval_times[eval_times <= tau]), :],
+                    nuisance_weight=nuisance_weight[
+                        :, : len(eval_times[eval_times <= tau])
+                    ],
                     h_fs=h_fs,
-                    leq_j=int(l == j)
+                    leq_j=int(l == j - 1),
                 )
-                
+
                 # Initialize the matrix for non-likelihood event indicators
                 nlds = np.zeros_like(h_fs)
                 for i, time in enumerate(t_tilde):
                     if delta[i] == l and time <= tau:
-                        if i < nlds.shape[1]:
-                            nlds[np.where(eval_times == time)[0][0], i] = 1
-                
+                        if i < nlds.shape[0]:
+                            nlds[i, np.where(eval_times == time)[0][0]] = 1
+
                 haz_ls = get_haz_ls(
                     t_tilde=t_tilde,
                     eval_times=eval_times[eval_times <= tau],
-                    haz_l=hazard_l[:len(eval_times[eval_times <= tau]), :]
+                    haz_l=hazards[:, : len(eval_times[eval_times <= tau]), l],
                 )
-                
+
                 # Sum contributions for IC
-                print("nlds \n", nlds.shape)
-                print("haz_ls \n", haz_ls.shape)
-                print("clev_cov \n", clev_cov.shape)
-                expanded_haz_ls = np.tile(haz_ls, (1, (nlds.shape[1] // haz_ls.shape[1]) + 1))[:, :nlds.shape[1]]
-                ic_j_tau.append(np.sum(clev_cov * (nlds - expanded_haz_ls), axis=0))
-            
-            tau_idx = np.where(eval_times == tau)[0][0]
-            ic_j_tau = np.sum(ic_j_tau, axis=0) + f_j_t[tau_idx, :] - np.mean(f_j_t[tau_idx, :])
-            
+                # print("nlds \n", nlds.shape)
+                # print("haz_ls \n", haz_ls.shape)
+                # print("clev_cov \n", clev_cov.shape)
+                ic_j_tau.append(np.sum(clev_cov * (nlds - haz_ls), axis=1))
+
+            ic_j_tau = (
+                np.sum(ic_j_tau, axis=0)
+                + f_j_t[:, tau_idx]
+                - np.mean(f_j_t[:, tau_idx])
+            )
+
             # Check for overflow (NaNs)
             if np.any(np.isnan(ic_j_tau)):
-                raise ValueError(
+                raise RuntimeError(
                     "IC overflow: either increase min_nuisance or specify a target estimand "
                     "(Target Event, Target Time, & Intervention) with more support in the data."
                 )
 
             # Store the results for this tau and j as dictionaries
             for idx, ic_val in enumerate(ic_j_tau):
-                ic_results.append({"ID": idx + 1, "Time": tau, "Event": j, "IC": ic_val})
+                ic_results.append(
+                    {"ID": idx + 1, "Time": tau, "Event": j, "IC": ic_val}
+                )
 
     # Convert results to DataFrame
     ic_a = pd.DataFrame(ic_results)
-    
+
     return ic_a
 
 
-def get_clever_covariate(g_star, nuisance_weight, h_fs, leq_j):
+def get_clever_covariate(
+    g_star: np.ndarray, nuisance_weight: np.ndarray, h_fs: np.ndarray, leq_j: int
+) -> np.ndarray:
     """
     Computes the clever covariate for influence curve calculation.
 
@@ -171,14 +182,16 @@ def get_clever_covariate(g_star, nuisance_weight, h_fs, leq_j):
     Returns:
         numpy.ndarray: Adjusted clever covariate matrix.
     """
-    # Element-wise multiplication of each column of nuisance_weight by corresponding g_star values
-    for i in range(nuisance_weight.shape[1]):
-        nuisance_weight[:, i] *= g_star[i]
-    
+    # Element-wise multiplication of each row of nuisance_weight by corresponding g_star values
+    nuisance_weight = g_star[:, np.newaxis] * nuisance_weight
+
     # Element-wise multiplication with (LeqJ - h_fs)
     return nuisance_weight * (leq_j - h_fs)
 
-def get_haz_ls(t_tilde, eval_times, haz_l):
+
+def get_haz_ls(
+    t_tilde: np.ndarray, eval_times: np.ndarray, haz_l: np.ndarray
+) -> np.ndarray:
     """
     Computes the adjusted hazard matrix for each instance and time, based on evaluation times.
 
@@ -190,53 +203,56 @@ def get_haz_ls(t_tilde, eval_times, haz_l):
     Returns:
         numpy.ndarray: Adjusted hazard matrix where HazL values are retained for times <= t_tilde.
     """
-    for i in range(haz_l.shape[1]):
-        haz_l[:, i] = np.where(eval_times <= t_tilde[i], haz_l[:, i], 0)
-    
+    for i in range(haz_l.shape[0]):
+        haz_l[i, :] = np.where(eval_times <= t_tilde[i], haz_l[i, :], 0)
+
     return haz_l
 
-def get_g_comp(eval_times, hazards, total_surv, target_time):
+
+def get_g_comp(
+    eval_times: np.ndarray,
+    hazards: np.ndarray,
+    total_surv: np.ndarray,
+    target_time: List[float],
+) -> pd.DataFrame:
     """
     Calculates the G-computation estimate for a target cumulative incidence function (CIF)
     based on given event hazards and survival functions over time.
-    
+
     Args:
-        eval_times (array-like): Evaluation times for the cumulative incidence functions.
-        hazards (dict): Dictionary where each key is an event type, and each value is a hazard 
-            matrix with rows as time points and columns as instances.
-        total_surv (array-like): Survival probabilities over time for each instance.
-        target_time (array-like): List of target times to evaluate in the influence curve.
-        
+        eval_times (numpy.ndarray): Evaluation times for the cumulative incidence functions.
+        hazards (numpy.ndarray): Hazard matrix with rows as instances and columns as time points.
+        total_surv (numpy.ndarray): Survival probabilities over time for each instance.
+        target_time (numpy.ndarray): List of target times to evaluate in the influence curve.
+
     Returns:
         DataFrame: DataFrame with columns 'Event', 'Time', and 'Risk' containing the cumulative incidence estimates.
     """
     risks = []
 
-    for event, haz_j in hazards.items():
-        # Calculate cumulative risk for each instance (column) at each time point
-        risk_a = np.cumsum(total_surv * haz_j, axis=0)
+    for j in range(hazards.shape[-1]):
+        # Calculate cumulative risk for each instance (row) at each time point
+        risk_a = np.cumsum(total_surv * hazards[..., j], axis=1)
 
-        # Filter only the rows corresponding to target times
-        target_rows = eval_times[np.isin(eval_times, target_time)]
-        risk_a_target = risk_a[np.isin(eval_times, target_time), :]
+        # Filter only the columns corresponding to target times
+        target_cols = eval_times[np.isin(eval_times, target_time)]
+        risk_a_target = risk_a[:, np.isin(eval_times, target_time)]
 
-        # Average over columns (instances) to get the mean cumulative incidence for each target time
-        f_j_tau = np.mean(risk_a_target, axis=1)
+        # Average over rows (instances) to get the mean cumulative incidence for each target time
+        f_j_tau = np.mean(risk_a_target, axis=0)
 
         # Store results for each event type
-        for t, risk in zip(target_rows, f_j_tau):
-            risks.append({"Event": int(event), "Time": t, "F.j.tau": risk})
+        for t, risk in zip(target_cols, f_j_tau):
+            risks.append({"Event": int(j + 1), "Time": t, "F.j.tau": risk})
 
     # Convert to DataFrame
     risks_df = pd.DataFrame(risks)
 
     # Append row for overall survival (Event = -1)
     total_risk = risks_df.groupby("Time")["F.j.tau"].sum()
-    total_risk_df = pd.DataFrame({
-        "Event": -1,
-        "Time": total_risk.index,
-        "F.j.tau": 1 - total_risk.values
-    })
+    total_risk_df = pd.DataFrame(
+        {"Event": -1, "Time": total_risk.index, "F.j.tau": total_risk.values}
+    )
     risks_df = pd.concat([risks_df, total_risk_df], ignore_index=True)
 
     # Rename 'F.j.tau' to 'Risk' in final DataFrame
@@ -244,16 +260,17 @@ def get_g_comp(eval_times, hazards, total_surv, target_time):
 
     return risks_df[["Event", "Time", "Risk"]]
 
-def summarize_ic(ic_a):
+
+def summarize_ic(ic_a: pd.DataFrame) -> pd.DataFrame:
     """
     Summarizes the influence curve (IC) estimates for the target cumulative incidence function (CIF).
 
     Args:
-        ic_a (DataFrame): DataFrame containing columns 'ID', 'Time', 'Event', and 'IC' 
+        ic_a (DataFrame): DataFrame containing columns 'ID', 'Time', 'Event', and 'IC'
                           representing influence curve estimates for each event and time.
 
     Returns:
-        DataFrame: Summary DataFrame with columns 'Time', 'Event', 'PnEIC', 'seEIC', 
+        DataFrame: Summary DataFrame with columns 'Time', 'Event', 'PnEIC', 'seEIC',
                    and 'seEIC/(sqrt(n)log(n))' containing mean and standard error estimates.
     """
     # Append overall influence calculation for 'Event = -1'
@@ -263,13 +280,22 @@ def summarize_ic(ic_a):
     ic_a = pd.concat([ic_a, overall_ic], ignore_index=True)
 
     # Calculate summary statistics
-    summary = ic_a.groupby(["Time", "Event"]).agg(
-        PnEIC=("IC", "mean"),
-        seEIC=("IC", lambda x: np.sqrt(np.mean(x ** 2))),
-        seEIC_sqrt_n_log_n=("IC", lambda x: np.sqrt(np.mean(x ** 2)) / (np.sqrt(len(x)) * np.log(len(x))))
-    ).reset_index()
+    summary = (
+        ic_a.groupby(["Time", "Event"])
+        .agg(
+            PnEIC=("IC", "mean"),
+            seEIC=("IC", lambda x: np.sqrt(np.mean(x**2))),
+            seEIC_sqrt_n_log_n=(
+                "IC",
+                lambda x: np.sqrt(np.mean(x**2)) / (np.sqrt(len(x)) * np.log(len(x))),
+            ),
+        )
+        .reset_index()
+    )
 
     # Rename columns to match the output format
-    summary.rename(columns={"seEIC_sqrt_n_log_n": "seEIC/(sqrt(n)log(n))"}, inplace=True)
+    summary.rename(
+        columns={"seEIC_sqrt_n_log_n": "seEIC/(sqrt(n)log(n))"}, inplace=True
+    )
 
     return summary

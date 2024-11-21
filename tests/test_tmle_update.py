@@ -1,8 +1,32 @@
 import pytest
 from pytmle.tmle_update import tmle_update
+from pytmle.estimates import UpdatedEstimates
+
+import numpy as np
 
 
-def test_tmle_update_not_implemented(mock_tmle_update_inputs):
-    with pytest.raises(NotImplementedError):
-        # TODO: Adapt as soon as tmle_update has been implemented
-        tmle_update(**mock_tmle_update_inputs)
+@pytest.mark.parametrize("target_times", [[1.0, 2.0, 3.0], [1.111, 2.222, 3.333], None])
+def test_tmle_update(mock_tmle_update_inputs, target_times):
+    mock_tmle_update_inputs["target_times"] = target_times
+    updated_estimates = tmle_update(**mock_tmle_update_inputs, gcomp=True)
+
+    # TODO: Test the parts (EIC, TMLE loop, etc.) individually?
+    assert isinstance(updated_estimates, dict)
+    for _, estimate in updated_estimates.items():
+        assert isinstance(estimate, UpdatedEstimates)
+
+        # concerning EIC
+        assert not estimate.g_comp_est is None
+        if target_times is not None:
+            assert all(estimate.g_comp_est["Time"].unique() == np.array(target_times))
+        else:
+            # if no targt_times given: Last available time point should be used
+            assert all(estimate.g_comp_est["Time"].unique() == estimate.times[-1])
+        assert not estimate.ic is None
+        if target_times is not None:
+            assert all(estimate.ic["Time"].unique() == np.array(target_times))
+            assert len(estimate.ic) == len(target_times) * len(estimate)
+        else:
+            # if no targt_times given: Last available time point should be used
+            assert all(estimate.ic["Time"].unique() == estimate.times[-1])
+            assert len(estimate.ic) == len(estimate)
