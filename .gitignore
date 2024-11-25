@@ -1,3 +1,5 @@
 .gitlab-ci.yml
 __pycache__/
 pytmle.egg-info/
+build/
+*.ipynb

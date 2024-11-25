@@ -91,6 +91,8 @@ def get_mock_initial_estimates(df: pd.DataFrame) -> Dict[int, InitialEstimates]:
             -(event_1_cum_hazards_1 + event_2_cum_hazards_1)
         ),
         hazards=np.stack((event_1_hazards_1, event_2_hazards_1), axis=-1),
+        g_star_obs=df["group"].to_numpy(),
+        times=cph_censoring.unique_times_,
     )
     initial_estimates_0 = InitialEstimates(
         propensity_scores=propensity_scores[:, 0],
@@ -99,6 +101,8 @@ def get_mock_initial_estimates(df: pd.DataFrame) -> Dict[int, InitialEstimates]:
             -(event_1_cum_hazards_0 + event_2_cum_hazards_0)
         ),
         hazards=np.stack((event_1_hazards_0, event_2_hazards_0), axis=-1),
+        g_star_obs=1 - df["group"].to_numpy(),
+        times=cph_censoring.unique_times_,
     )
 
     initial_estimates = {0: initial_estimates_0, 1: initial_estimates_1}
@@ -118,6 +122,6 @@ def mock_tmle_update_inputs() -> Dict[str, Any]:
     return mock_inputs
 
 
-# if __name__ == "__main__":
-#     mock_inputs = get_mock_input_data()
-#     mock_initial_estimates = get_mock_initial_estimates(mock_inputs)
+if __name__ == "__main__":
+    mock_inputs = get_mock_input_data()
+    mock_initial_estimates = get_mock_initial_estimates(mock_inputs)
