@@ -121,12 +121,14 @@ def mock_tmle_update_inputs() -> Dict[str, Any]:
     }
     return mock_inputs
 
-@pytest.fixture()
-def mock_updated_estimates(mock_tmle_update_inputs) -> Dict[int, UpdatedEstimates]:
+
+@pytest.fixture(params=[[1], [1,2]])
+def mock_updated_estimates(request, mock_tmle_update_inputs) -> Dict[int, UpdatedEstimates]:
+    target_events = request.param
     updated_estimates = {
         i: UpdatedEstimates.from_initial_estimates(
             mock_tmle_update_inputs["initial_estimates"][i],
-            target_events=[1],
+            target_events=target_events,
             target_times=mock_tmle_update_inputs["target_times"],
         )
         for i in mock_tmle_update_inputs["initial_estimates"].keys()
