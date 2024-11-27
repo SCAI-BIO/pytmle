@@ -6,7 +6,7 @@ from pytmle.estimates import UpdatedEstimates
 from scipy.stats import norm
 
 def get_counterfactual_risks(updated_estimates: Dict[int, UpdatedEstimates], 
-                         gcomp: bool = False,
+                         g_comp: bool = False,
                          alpha: float = 0.05,
                          key_1: int = 1,
                          key_0: int = 0) -> pd.DataFrame:
@@ -16,9 +16,9 @@ def get_counterfactual_risks(updated_estimates: Dict[int, UpdatedEstimates],
     
     if not key_1 in updated_estimates.keys() or not key_0 in updated_estimates.keys():
         raise ValueError("Both keys must be present in the updated estimates dictionary.")
-    pred_risk_1 = updated_estimates[key_1].predict_mean_risks(g_comp=gcomp)
+    pred_risk_1 = updated_estimates[key_1].predict_mean_risks(g_comp=g_comp)
     pred_risk_1["Group"] = key_1
-    pred_risk_0 = updated_estimates[key_0].predict_mean_risks(g_comp=gcomp)
+    pred_risk_0 = updated_estimates[key_0].predict_mean_risks(g_comp=g_comp)
     pred_risk_0["Group"] = key_0
 
     assert (pred_risk_1["Time"] == pred_risk_0["Time"]).all(), "Time values do not match between groups."
@@ -27,7 +27,7 @@ def get_counterfactual_risks(updated_estimates: Dict[int, UpdatedEstimates],
     pred_risk = pd.concat([pred_risk_1, pred_risk_0], ignore_index=True)
 
     # confidence intervals
-    if not gcomp:
+    if not g_comp:
         pred_risk["CI_lower"] = pred_risk["Pt Est"] - norm.ppf(1 - alpha / 2) * pred_risk["SE"]
         pred_risk["CI_upper"] = pred_risk["Pt Est"] + norm.ppf(1 - alpha / 2) * pred_risk["SE"]
     else:
@@ -38,7 +38,7 @@ def get_counterfactual_risks(updated_estimates: Dict[int, UpdatedEstimates],
 
 def ate_ratio(
     updated_estimates: Dict[int, UpdatedEstimates], 
-    gcomp: bool = False,
+    g_comp: bool = False,
     alpha: float = 0.05,
     key_1: int = 1,
     key_0: int = 0
@@ -48,7 +48,7 @@ def ate_ratio(
 
     Args:
         updated_estimates (dict): Dictionary of UpdatedEstimates objects with current estimates.
-        gcomp (bool): Flag to use G-computation estimates if available.
+        g_comp (bool): Flag to use G-computation estimates if available.
         alpha (float): Significance level for confidence intervals.
         key_1 (int): Key for the treatment group.
         key_0 (int): Key for the control group.
@@ -56,7 +56,7 @@ def ate_ratio(
     Returns:
         pandas.DataFrame: DataFrame with ATE ratio estimates.
     """
-    pred_risk = get_counterfactual_risks(updated_estimates, gcomp, alpha, key_1, key_0)
+    pred_risk = get_counterfactual_risks(updated_estimates, g_comp, alpha, key_1, key_0)
     pred_risk_1 = pred_risk[pred_risk["Group"] == key_1].reset_index(drop=True)
     pred_risk_0 = pred_risk[pred_risk["Group"] == key_0].reset_index(drop=True)
 
@@ -65,7 +65,7 @@ def ate_ratio(
     pred_ratios["Event"] = pred_risk_1["Event"]
     pred_ratios["Pt Est"] = pred_risk_1["Pt Est"] / pred_risk_0["Pt Est"]
 
-    if not gcomp:
+    if not g_comp:
         ic_1 = updated_estimates[key_1].ic.set_index(["Event", "Time"])
         ic_0 = updated_estimates[key_0].ic.set_index(["Event", "Time"])
         pred_risk_1 = pred_risk_1.set_index(["Event", "Time"])
@@ -100,7 +100,7 @@ def ate_ratio(
 
 def ate_diff(
     updated_estimates: Dict[int, UpdatedEstimates], 
-    gcomp: bool = False,
+    g_comp: bool = False,
     alpha: float = 0.05,
     key_1: int = 1,
     key_0: int = 0
@@ -110,7 +110,7 @@ def ate_diff(
 
     Args:
         updated_estimates (dict): Dictionary of UpdatedEstimates objects with current estimates.
-        gcomp (bool): Flag to use G-computation estimates if available.
+        g_comp (bool): Flag to use G-computation estimates if available.
         alpha (float): Significance level for confidence intervals.
         key_1 (int): Key for the treatment group.
         key_0 (int): Key for the control group.
@@ -118,7 +118,7 @@ def ate_diff(
     Returns:
         pandas.DataFrame: DataFrame with ATE difference estimates.
     """
-    pred_risk = get_counterfactual_risks(updated_estimates, gcomp, alpha, key_1, key_0)
+    pred_risk = get_counterfactual_risks(updated_estimates, g_comp, alpha, key_1, key_0)
     pred_risk_1 = pred_risk[pred_risk["Group"] == key_1].reset_index(drop=True)
     pred_risk_0 = pred_risk[pred_risk["Group"] == key_0].reset_index(drop=True)
 
@@ -127,7 +127,7 @@ def ate_diff(
     pred_diffs["Event"] = pred_risk_1["Event"]
     pred_diffs["Pt Est"] = pred_risk_1["Pt Est"] - pred_risk_0["Pt Est"]
 
-    if not gcomp:
+    if not g_comp:
         ic_1 = updated_estimates[key_1].ic.set_index(["Event", "Time"])
         ic_0 = updated_estimates[key_0].ic.set_index(["Event", "Time"])
 
