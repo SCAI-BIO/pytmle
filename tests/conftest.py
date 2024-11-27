@@ -8,8 +8,8 @@ from sklearn.linear_model import LogisticRegression
 from sksurv.linear_model import CoxPHSurvivalAnalysis
 from sksurv.util import Surv
 
-from pytmle.estimates import InitialEstimates
-
+from pytmle.estimates import InitialEstimates, UpdatedEstimates
+from pytmle.get_influence_curve import get_eic
 
 def get_mock_input_data(n_samples: int = 1000) -> pd.DataFrame:
     np.random.seed(42)
@@ -121,6 +121,24 @@ def mock_tmle_update_inputs() -> Dict[str, Any]:
     }
     return mock_inputs
 
+@pytest.fixture()
+def mock_updated_estimates(mock_tmle_update_inputs) -> Dict[int, UpdatedEstimates]:
+    updated_estimates = {
+        i: UpdatedEstimates.from_initial_estimates(
+            mock_tmle_update_inputs["initial_estimates"][i],
+            target_events=[1],
+            target_times=mock_tmle_update_inputs["target_times"],
+        )
+        for i in mock_tmle_update_inputs["initial_estimates"].keys()
+    }
+    # TODO: Change to actual TMLE update function when implemented
+    updated_estimates = get_eic(
+        estimates=updated_estimates,
+        event_times=mock_tmle_update_inputs["event_times"],
+        event_indicator=mock_tmle_update_inputs["event_indicator"],
+        g_comp=True
+    )
+    return updated_estimates
 
 if __name__ == "__main__":
     mock_inputs = get_mock_input_data()
