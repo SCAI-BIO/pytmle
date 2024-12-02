@@ -1,9 +1,11 @@
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
+import seaborn as sns
 import numpy as np
 import pandas as pd
-from typing import Optional
+from typing import Optional, Generator
 
+from pytmle.estimates import UpdatedEstimates
 
 def initialize_subplots(target_events: np.ndarray) -> tuple:
     num_events = len(target_events)
@@ -165,6 +167,41 @@ def plot_ate(tmle_est: pd.DataFrame,
 
     return fig, axes
 
-def plot_nuisance_weights():
-    # TODO: Implement plotting function for nuisance weights (to be used for positivity assumption checks)
-    pass
+
+def plot_nuisance_weights(updated_estimates: UpdatedEstimates, 
+                          color_1: Optional[str] = None,
+                          color_0: Optional[str] = None) -> Generator[tuple, None, None]:
+    target_times = [0]
+    if updated_estimates.target_times is not None:
+        target_times += list(updated_estimates.target_times)
+
+
+    times_idx = [i for i, time in enumerate(updated_estimates.times) if time in target_times]
+    for t_idx, t in zip(times_idx, target_times):
+        nuisance_weight = 1 / updated_estimates.nuisance_weight[:, t_idx]
+        g_star_obs = updated_estimates.g_star_obs
+
+        # Filter the data
+        weights_g1 = nuisance_weight[g_star_obs == 1]
+        weights_g0 = nuisance_weight[g_star_obs == 0]
+
+        # Plot the density functions
+        fig, ax = plt.subplots(figsize=(10, 6))
+        sns.kdeplot(weights_g1, label='1', shade=True, color=color_1)
+        sns.kdeplot(weights_g0, label='0', shade=True, color=color_0)
+
+        # vertical line for min_nuisance
+        plt.axvline(x=updated_estimates.min_nuisance, color='gray', linestyle='--', label='Min. Nuisance')
+        
+        plt.suptitle(f'Nuisance weights at time t={t} for positivity check', fontsize=15)
+        if t==0:
+            plt.title('Weights close to 0 or 1 warn of possible positivity violations', fontsize=13)
+        else:
+            plt.title('Weights close to 0 warn of possible positivity violations', fontsize=13)
+        plt.xlabel(r'$\pi(a|w) \, S_c(t|a,w)$', fontsize=13)
+        plt.xlim(0,1)
+        plt.ylabel('Density', fontsize=13)
+        plt.legend(title='Group')
+        plt.show()
+
+        yield fig, ax, t

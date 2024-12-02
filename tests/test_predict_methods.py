@@ -4,19 +4,26 @@ import os
 
 from pytmle.estimates import UpdatedEstimates
 from pytmle.predict_ate import get_counterfactual_risks, ate_ratio, ate_diff
-from pytmle.plotting import plot_risks, plot_ate
+from pytmle.plotting import plot_risks, plot_ate, plot_nuisance_weights
 
 def test_predict_mean_risks(mock_updated_estimates):   
     g_comp = False
     for k in mock_updated_estimates.keys():
         assert isinstance(mock_updated_estimates[k], UpdatedEstimates)
-        result = mock_updated_estimates[0].predict_mean_risks(g_comp=g_comp)
+        result = mock_updated_estimates[k].predict_mean_risks(g_comp=g_comp)
         assert isinstance(result, pd.DataFrame)
         assert set(result.columns) == {"Time", "Event", "Pt Est", "SE"}
         assert result["SE"].isna().all() == g_comp # should be all NA for g_comp=True
         assert len(result) == len(mock_updated_estimates[k].target_times) * len(mock_updated_estimates[k].target_events)
         g_comp = not g_comp # invert g_comp flag for next iteration to check both behaviors
 
+        # test plotting (of nuisance weights)
+        for _, _, time in plot_nuisance_weights(mock_updated_estimates[k], color_1="#c00000", color_0="#699aaf"):
+            plt.savefig(f'/tmp/test_nuisance_weights_plot_t{time}.png')  # Save the plot to a file
+            assert os.path.exists(f'/tmp/test_nuisance_weights_plot_t{time}.png')  # Check if the plot file exists
+            os.remove(f'/tmp/test_nuisance_weights_plot_t{time}.png')  # Clean up the file after the test
+            plt.close()  # Close the plot
+    
 
 def test_get_counterfactual_risks(mock_updated_estimates):
     results = dict.fromkeys(["tmle", "g_comp"])

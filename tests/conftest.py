@@ -36,7 +36,7 @@ def get_mock_initial_estimates(df: pd.DataFrame) -> Dict[int, InitialEstimates]:
     treatment_model = LogisticRegression()
     treatment_model.fit(df[["x1", "x2", "x3"]], df["group"])
     propensity_scores = treatment_model.predict_proba(df[["x1", "x2", "x3"]])
-    propensity_scores[df["group"] == 0] = 1 - propensity_scores[df["group"] == 0]
+    #propensity_scores[df["group"] == 0] = 1 - propensity_scores[df["group"] == 0]
 
     # Estimate censoring survival function using Cox regression from scikit-survival
     # Create structured arrays for survival analysis
