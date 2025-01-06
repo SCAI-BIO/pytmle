@@ -15,7 +15,7 @@ import numpy as np
 def test_tmle_update(mock_tmle_update_inputs, target_times, target_events):
     mock_tmle_update_inputs["target_times"] = target_times
     mock_tmle_update_inputs["target_events"] = target_events
-    updated_estimates = tmle_update(**mock_tmle_update_inputs, gcomp=True)
+    updated_estimates = tmle_update(**mock_tmle_update_inputs, g_comp=True)
 
     # TODO: Test the parts (EIC, TMLE loop, etc.) individually?
     assert isinstance(updated_estimates, dict)
