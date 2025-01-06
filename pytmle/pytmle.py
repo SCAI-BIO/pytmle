@@ -64,6 +64,7 @@ class PyTMLE:
                            initial_estimates)
         self._initial_estimates = initial_estimates
         self._updated_estimates = None
+        self._X = data.drop(columns=[col_event_times, col_event_indicator, col_group]).to_numpy()
         self._event_times = data[col_event_times].to_numpy()
         self._event_indicator = data[col_event_indicator].to_numpy()
         self._group = data[col_group].to_numpy()
@@ -114,12 +115,14 @@ class PyTMLE:
             raise ValueError("All target times have to be positive.")
 
 
-    def _get_initial_estimates(self):
+    def _get_initial_estimates(self, cv_folds: int):
         if (self._initial_estimates is None or 
             self._initial_estimates[self.key_1].propensity_scores is None or 
             self._initial_estimates[self.key_0].propensity_scores is None):
             logger.info("Estimating propensity scores...")
-            propensity_scores_1, propensity_scores_0 = fit_default_propensity_model()
+            propensity_scores_1, propensity_scores_0 = fit_default_propensity_model(X=self._X, 
+                                                                                    y=self._group, 
+                                                                                    cv_folds=cv_folds)
         else:
             logger.info("Using given propensity score estimates")
             propensity_scores_1 = self._initial_estimates[self.key_1].propensity_scores
@@ -129,10 +132,10 @@ class PyTMLE:
             self._initial_estimates[self.key_0].hazards is None or
             self._initial_estimates[self.key_1].event_free_survival_function is None or 
             self._initial_estimates[self.key_0].event_free_survival_function is None):
-            logger.info("Estimating hazards and event free survival...")
+            logger.info("Estimating hazards and event-free survival...")
             hazards_1, hazards_0, surv_1, surv_0 = fit_default_risk_model()
         else:
-            logger.info("Using given hazard and event free survival estimates")
+            logger.info("Using given hazard and event-free survival estimates")
             hazards_1 = self._initial_estimates[self.key_1].hazards
             hazards_0 = self._initial_estimates[self.key_0].hazards
             surv_1 = self._initial_estimates[self.key_1].event_free_survival_function
@@ -180,6 +183,7 @@ class PyTMLE:
 
 
     def fit(self, 
+            cv_folds: int = 10,
             max_updates: int = 500,
             min_nuisance: Optional[float] = None,):
         """
@@ -187,6 +191,9 @@ class PyTMLE:
 
         Parameters
         ----------
+        cv_folds : int, optional
+            Number of cross-validation folds for the initial estimate models. 
+            The number is the same for the inner and outer loop used by the super learners. Default is 10.
         max_updates : int
             Maximum number of updates to the estimates in the TMLE loop. Default is 500.
         min_nuisance : Optional[float], optional
@@ -194,7 +201,7 @@ class PyTMLE:
         """
         if self._fitted:
             raise RuntimeError("Model has already been fitted. fit() can only be called once.")
-        self._get_initial_estimates()
+        self._get_initial_estimates(cv_folds)
         self._update_estimates(max_updates, min_nuisance)
         self._fitted = True
 
@@ -308,8 +315,8 @@ class PyTMLE:
         color_0 : Optional[str], optional
             Color for the control group. Default is None.
         """
-        if not self._fitted or self._updated_estimates is None: 
-            raise RuntimeError("Model has to be fitted before calling plot_nuisance_weights().")
+        if self._updated_estimates is None: 
+            raise RuntimeError("Updated estimates must have been initialized before calling plot_nuisance_weights().")
         if save_dir_path is not None and not os.path.exists(save_dir_path):
             os.makedirs(save_dir_path)
         for _, _, time in plot_nuisance_weights(self._updated_estimates[self.key_1], 

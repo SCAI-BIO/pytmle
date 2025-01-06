@@ -115,9 +115,7 @@ def mock_main_class_inputs() -> Dict[str, Any]:
     mock_inputs = {
         "initial_estimates": get_mock_initial_estimates(df),
         "target_times": [1.0, 2.0, 3.0, 10.0, 20.0],
-        "event_times": df["event_time"].values,
-        "event_indicator": df["event_indicator"].values,
-        "group": df["group"]
+        "data": df
     }
     return mock_inputs
     
