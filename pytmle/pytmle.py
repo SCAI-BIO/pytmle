@@ -116,54 +116,45 @@ class PyTMLE:
 
 
     def _get_initial_estimates(self, cv_folds: int):
-        if (self._initial_estimates is None or 
-            self._initial_estimates[self.key_1].propensity_scores is None or 
+        if self._initial_estimates is None:
+            self._initial_estimates = {self.key_1:
+                                       InitialEstimates(g_star_obs = self._group,
+                                                        times=np.unique(self._event_times)),
+                                        self.key_0:
+                                        InitialEstimates(g_star_obs = 1 - self._group,
+                                                        times=np.unique(self._event_times)),
+                                        }
+
+        if (self._initial_estimates[self.key_1].propensity_scores is None or 
             self._initial_estimates[self.key_0].propensity_scores is None):
             logger.info("Estimating propensity scores...")
             propensity_scores_1, propensity_scores_0 = fit_default_propensity_model(X=self._X, 
                                                                                     y=self._group, 
                                                                                     cv_folds=cv_folds)
+            self._initial_estimates[self.key_1].propensity_scores = propensity_scores_1
+            self._initial_estimates[self.key_0].propensity_scores = propensity_scores_0
         else:
             logger.info("Using given propensity score estimates")
-            propensity_scores_1 = self._initial_estimates[self.key_1].propensity_scores
-            propensity_scores_0 = self._initial_estimates[self.key_0].propensity_scores
-        if (self._initial_estimates is None or 
-            self._initial_estimates[self.key_1].hazards is None or 
+        if (self._initial_estimates[self.key_1].hazards is None or 
             self._initial_estimates[self.key_0].hazards is None or
             self._initial_estimates[self.key_1].event_free_survival_function is None or 
             self._initial_estimates[self.key_0].event_free_survival_function is None):
             logger.info("Estimating hazards and event-free survival...")
             hazards_1, hazards_0, surv_1, surv_0 = fit_default_risk_model()
+            self._initial_estimates[self.key_1].hazards = hazards_1
+            self._initial_estimates[self.key_1].event_free_survival_function = surv_1
+            self._initial_estimates[self.key_0].hazards = hazards_0
+            self._initial_estimates[self.key_0].event_free_survival_function = surv_0
         else:
             logger.info("Using given hazard and event-free survival estimates")
-            hazards_1 = self._initial_estimates[self.key_1].hazards
-            hazards_0 = self._initial_estimates[self.key_0].hazards
-            surv_1 = self._initial_estimates[self.key_1].event_free_survival_function
-            surv_0 = self._initial_estimates[self.key_0].event_free_survival_function
-        if (self._initial_estimates is None or 
-            self._initial_estimates[self.key_1].censoring_survival_function is None or 
+        if (self._initial_estimates[self.key_1].censoring_survival_function is None or 
             self._initial_estimates[self.key_0].censoring_survival_function is None):
             logger.info("Estimating censoring survival...")
             cens_surv_1, cens_surv_0 = fit_default_censoring_model()
+            self._initial_estimates[self.key_1].censoring_survival_function = cens_surv_1
+            self._initial_estimates[self.key_0].censoring_survival_function = cens_surv_0
         else:
             logger.info("Using given censoring survival estimates")
-            cens_surv_1 = self._initial_estimates[self.key_1].censoring_survival_function
-            cens_surv_0 = self._initial_estimates[self.key_0].censoring_survival_function
-
-        self._initial_estimates = {self.key_1: 
-                                   InitialEstimates(propensity_scores = propensity_scores_1,
-                                                    hazards=hazards_1,
-                                                    event_free_survival_function=surv_1,
-                                                    censoring_survival_function=cens_surv_1,
-                                                    g_star_obs = self._group,
-                                                    times=np.unique(self._event_times)),
-                                    self.key_0: 
-                                    InitialEstimates(propensity_scores = propensity_scores_0,
-                                                    hazards=hazards_0,
-                                                    event_free_survival_function=surv_0,
-                                                    censoring_survival_function=cens_surv_0,
-                                                    g_star_obs = 1 - self._group,
-                                                    times=np.unique(self._event_times)),}
 
 
     def _update_estimates(self, max_updates: int, 

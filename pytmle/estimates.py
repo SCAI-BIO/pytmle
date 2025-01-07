@@ -1,48 +1,72 @@
 import numpy as np
 import pandas as pd
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional, List
 
 from pytmle.g_computation import get_g_comp
 
 @dataclass
 class InitialEstimates:
-    propensity_scores: np.ndarray
-    hazards: np.ndarray
-    event_free_survival_function: np.ndarray
-    censoring_survival_function: np.ndarray
-    g_star_obs: np.ndarray
+    # these fields must be filled on instatiation
     times: np.ndarray
+    g_star_obs: np.ndarray
+    # these fields are optional and can be filled later
+    propensity_scores: Optional[np.ndarray] = field(default=None)
+    hazards: Optional[np.ndarray] = field(default=None)
+    event_free_survival_function: Optional[np.ndarray] = field(default=None)
+    censoring_survival_function: Optional[np.ndarray] = field(default=None)
+    _length: Optional[int] = field(default=None, init=False)
+    _run_checks: bool = field(default=True, init=False)
 
-    def __post_init__(self):
-        if not (
-            len(self.propensity_scores)
-            == len(self.hazards)
-            == len(self.event_free_survival_function)
-            == len(self.censoring_survival_function)
-            == len(self.g_star_obs)
-        ):
-            raise RuntimeError(
-                f"All initial estimates must have the same first dimension, got ({len(self.propensity_scores)}, {len(self.hazards)}, {len(self.event_free_survival_function)}, {len(self.censoring_survival_function)})"
+    def __setattr__(self, name, value):
+        if value is not None and self._run_checks:
+            if name in ["propensity_scores", 
+                        "g_star_obs"]:
+                self._check_compatibility(value, check_width=False)
+            elif name in ["hazards", 
+                        "event_free_survival_function", 
+                        "censoring_survival_function"]:
+                self._check_compatibility(value, check_width=True)
+        super().__setattr__(name, value)
+
+    def _check_compatibility(self, new_element, check_width):
+        # check that all given estimates have the same length (first dimension size)
+        if self._length is None:
+            self._length = len(new_element)
+        elif self._length != len(new_element):
+            raise ValueError(
+                f"All initial estimates must have the same first dimension, got elements with sizes {self._length} and {len(new_element)}."
+            )
+        if check_width and ((len(new_element.shape) < 2) or (new_element.shape[1] != len(self.times))):
+            raise ValueError(
+                f"The second dimension of all initial estimates must be in line with the given times, got {len(self.times)} times and element of shape {new_element.shape}."
             )
 
+
     def __len__(self):
-        return len(self.propensity_scores)
+        return self._length
 
 
 @dataclass
 class UpdatedEstimates(InitialEstimates):
-    min_nuisance: Optional[float] = None
-    has_converged: bool = False
-    nuisance_weight: Optional[np.ndarray] = None
-    target_events: Optional[List[int]] = None
-    target_times: Optional[List[float]] = None
-    g_comp_est: Optional[pd.DataFrame] = None
-    ic: Optional[pd.DataFrame] = None
-    summ_eic: Optional[pd.DataFrame] = None
+    # all have to be given
+    propensity_scores: np.ndarray # type: ignore
+    hazards: np.ndarray # type: ignore
+    event_free_survival_function: np.ndarray # type: ignore
+    censoring_survival_function: np.ndarray # type: ignore
+
+    # is set on initialization
+    nuisance_weight: Optional[np.ndarray] = field(default=None, init=False)
+
+    has_converged: bool = field(default=False)
+    min_nuisance: Optional[float] = field(default=None)
+    target_events: Optional[List[int]] = field(default=None)
+    target_times: Optional[List[float]] = field(default=None)
+    g_comp_est: Optional[pd.DataFrame] = field(default=None)
+    ic: Optional[pd.DataFrame] = field(default=None)
+    summ_eic: Optional[pd.DataFrame] = field(default=None)
 
     def __post_init__(self):
-        super().__post_init__()
         if self.min_nuisance is None:
             self.min_nuisance = (
                 5
@@ -62,6 +86,7 @@ class UpdatedEstimates(InitialEstimates):
         )
         # TODO: Add positivity check as in https://github.com/imbroglio-dc/concrete/blob/main/R/getInitialEstimate.R#L64?
         self.nuisance_weight = 1 / np.maximum(nuisance_denominator, self.min_nuisance)  # type: ignore
+        self._check_compatibility(self.nuisance_weight, check_width=True)
 
     @classmethod
     def from_initial_estimates(
@@ -71,6 +96,10 @@ class UpdatedEstimates(InitialEstimates):
         target_times: Optional[List[float]] = None,
         min_nuisance: Optional[float] = None,
     ) -> "UpdatedEstimates":
+        assert (initial_estimates.propensity_scores is not None and 
+                initial_estimates.hazards is not None and 
+                initial_estimates.event_free_survival_function is not None and
+                initial_estimates.censoring_survival_function is not None), "All initial estimates have to be provided prior to an instatiation of UpdatedEstimates."
         return cls(
             propensity_scores=initial_estimates.propensity_scores,
             hazards=initial_estimates.hazards,
@@ -104,29 +133,36 @@ class UpdatedEstimates(InitialEstimates):
 
         # Combine and sort the times
         all_times = np.sort(np.unique(np.concatenate((self.times, self.target_times))))  # type: ignore
-        # get the maximum target time
+    
+        if len(all_times) > len(self.times):
+
+            # Find the indices where the new times should be inserted
+            insert_times = [t for t in self.target_times if t not in self.times]
+            insert_indices = np.searchsorted(all_times, insert_times)
+
+            # Update times
+            self.times = all_times
+
+            # Update hazards, event_free_survival_function, and censoring_survival_function
+            self.hazards = np.insert(self.hazards, insert_indices, 0, axis=1)
+            self.event_free_survival_function = np.insert(
+                self.event_free_survival_function,
+                insert_indices,
+                self.event_free_survival_function[:, insert_indices - 1],
+                axis=1,
+            )
+            self.censoring_survival_function = np.insert(
+                self.censoring_survival_function,
+                insert_indices,
+                self.censoring_survival_function[:, insert_indices - 1],
+                axis=1,
+            )
+
+        # Find the index of the maximum target time
         max_target_time = max(self.target_times)  # type: ignore
-
-        # Find the indices where the new times should be inserted
-        insert_indices = np.searchsorted(all_times, self.target_times)  # type: ignore
-
-        # Update hazards, event_free_survival_function, and censoring_survival_function
-        self.hazards = np.insert(self.hazards, insert_indices, 0, axis=1)
-        self.event_free_survival_function = np.insert(
-            self.event_free_survival_function,
-            insert_indices,
-            self.event_free_survival_function[:, insert_indices - 1],
-            axis=1,
-        )
-        self.censoring_survival_function = np.insert(
-            self.censoring_survival_function,
-            insert_indices,
-            self.censoring_survival_function[:, insert_indices - 1],
-            axis=1,
-        )
-
-        # Find the index of the maximum target time and keep only times up to this index
         max_index = np.searchsorted(all_times, max_target_time)
+        # Keep only times up to the maximum index
+        self.times = all_times[: max_index + 1]
         self.hazards = self.hazards[:, : max_index + 1, :]
         self.event_free_survival_function = self.event_free_survival_function[
             :, : max_index + 1
@@ -134,9 +170,6 @@ class UpdatedEstimates(InitialEstimates):
         self.censoring_survival_function = self.censoring_survival_function[
             :, : max_index + 1
         ]
-
-        # Update times
-        self.times = all_times[: max_index + 1]
 
     def predict_mean_risks(self, g_comp: bool = False) -> pd.DataFrame:
         """

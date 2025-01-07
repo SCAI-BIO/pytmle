@@ -3,9 +3,12 @@ import pandas as pd
 
 from pytmle import PyTMLE
 
-# TODO: Add more combinations when default survival models are implemented
+# TODO: comment in combinations when default survival models are implemented
 @pytest.mark.parametrize("precomputed_initial_est_mask", 
                          [([True, True, True]), 
+                          #([True, False, True]),
+                          #([True, True, False]),
+                          #([False, False, False]),
                         ([False, True, True]),]) 
 def test_fit(mock_main_class_inputs, precomputed_initial_est_mask):
     df = mock_main_class_inputs["data"][["event_time", "event_indicator", "group", "x1", "x2", "x3"]]
