@@ -114,7 +114,7 @@ class UpdatedEstimates(InitialEstimates):
 
     def _update_for_target_times(self):
         """
-        Updates the time-related attributes of the object to include target times.
+        Updates the time-related attributes of the object to include target times (plus 0).
         This method performs the following steps:
         1. Combines and sorts the existing times and target times.
         2. Finds the indices where the target times should be inserted.
@@ -132,24 +132,28 @@ class UpdatedEstimates(InitialEstimates):
         """
 
         # Combine and sort the times
-        all_times = np.sort(np.unique(np.concatenate((self.times, self.target_times))))  # type: ignore
+        all_times = np.sort(np.unique(np.concatenate((self.times, [0] + self.target_times))))  # type: ignore
     
         if len(all_times) > len(self.times):
+
+            # Update hazards, event_free_survival_function, and censoring_survival_function
+            if 0 not in self.times:
+                self.times = np.insert(self.times, 0, 0)
+                self.hazards = np.insert(self.hazards, 0, 0, axis=1)
+                self.event_free_survival_function = np.insert(self.event_free_survival_function, 0, 1, axis=1)
+                self.censoring_survival_function = np.insert(self.censoring_survival_function, 0, 1, axis=1)
 
             # Find the indices where the new times should be inserted
             insert_times = [t for t in self.target_times if t not in self.times]
             insert_indices = np.searchsorted(all_times, insert_times)
-
-            # Update times
+            
             self.times = all_times
-
-            # Update hazards, event_free_survival_function, and censoring_survival_function
             self.hazards = np.insert(self.hazards, insert_indices, 0, axis=1)
             self.event_free_survival_function = np.insert(
-                self.event_free_survival_function,
-                insert_indices,
-                self.event_free_survival_function[:, insert_indices - 1],
-                axis=1,
+               self.event_free_survival_function,
+               insert_indices,
+               self.event_free_survival_function[:, insert_indices - 1],
+               axis=1,
             )
             self.censoring_survival_function = np.insert(
                 self.censoring_survival_function,
