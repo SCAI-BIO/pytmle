@@ -108,6 +108,17 @@ def get_mock_initial_estimates(df: pd.DataFrame) -> Dict[int, InitialEstimates]:
     initial_estimates = {0: initial_estimates_0, 1: initial_estimates_1}
     return initial_estimates
 
+@pytest.fixture()
+def mock_main_class_inputs() -> Dict[str, Any]:
+    # create mock initial estimates for testing, using default n_samples of 1000
+    df = get_mock_input_data()
+    mock_inputs = {
+        "initial_estimates": get_mock_initial_estimates(df),
+        "target_times": [1.0, 2.0, 3.0, 10.0, 20.0],
+        "data": df
+    }
+    return mock_inputs
+    
 
 @pytest.fixture()
 def mock_tmle_update_inputs() -> Dict[str, Any]:
@@ -120,7 +131,6 @@ def mock_tmle_update_inputs() -> Dict[str, Any]:
         "event_indicator": df["event_indicator"].values,
     }
     return mock_inputs
-
 
 @pytest.fixture(params=[[1], [1,2]])
 def mock_updated_estimates(request, mock_tmle_update_inputs) -> Dict[int, UpdatedEstimates]:

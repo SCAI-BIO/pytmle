@@ -176,7 +176,7 @@ def plot_nuisance_weights(updated_estimates: UpdatedEstimates,
         target_times += list(updated_estimates.target_times)
 
 
-    times_idx = [i for i, time in enumerate(updated_estimates.times) if time in target_times]
+    times_idx = [0] + [i for i, time in enumerate(updated_estimates.times) if time in target_times]
     for t_idx, t in zip(times_idx, target_times):
         nuisance_weight = 1 / updated_estimates.nuisance_weight[:, t_idx]
         g_star_obs = updated_estimates.g_star_obs

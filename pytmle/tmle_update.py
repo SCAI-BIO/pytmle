@@ -13,7 +13,7 @@ def tmle_update(
     target_events: List[int] = [1],
     max_updates: int = 500,
     min_nuisance: Optional[float] = None,
-    gcomp: bool = False,
+    g_comp: bool = False,
 ) -> Dict[int, UpdatedEstimates]:
     """
     Function to update the initial estimates using the TMLE algorithm.
@@ -34,7 +34,7 @@ def tmle_update(
         Maximum number of updates to the estimates in the TMLE loop.
     min_nuisance : Optional[float]
         Value between 0 and 1 for truncating the g-related denomiator of the clever covariate.
-    gcomp : bool
+    g_comp : bool
         Whether to return the g-computation estimates. Default is False.
 
     Returns
@@ -53,7 +53,7 @@ def tmle_update(
         estimates=updated_estimates,
         event_times=event_times,
         event_indicator=event_indicator,
-        g_comp=gcomp,
+        g_comp=g_comp,
     )
     # TODO: Implement TMLE update loop
     return updated_estimates
