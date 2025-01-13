@@ -3,6 +3,7 @@ import pandas as pd
 from dataclasses import dataclass
 from typing import Optional, List
 
+from pytmle.g_computation import get_g_comp
 
 @dataclass
 class InitialEstimates:
@@ -136,3 +137,38 @@ class UpdatedEstimates(InitialEstimates):
 
         # Update times
         self.times = all_times[: max_index + 1]
+
+    def predict_mean_risks(self, g_comp: bool = False) -> pd.DataFrame:
+        """
+        Predict the mean risks for the target events and times.
+        Args:           
+            g_comp (bool): Flag to return the G-computation estimate instead of the TMLE estimate.
+        Returns:
+            pd.DataFrame: DataFrame with columns 'Event', 'Time', 'Pt Est', and 'SE' containing the mean counterfactual risks.
+        """
+        if g_comp:
+            if self.g_comp_est is None:
+                raise ValueError(
+                    "g_comp_est is not available."
+                )
+            # return g_comp_estimate from BEFORE the TMLE update loop (standard error not available)
+            pred_risk = self.g_comp_est
+            pred_risk["SE"] = np.nan
+        else:
+            # return g_comp_estimate from AFTER the TMLE update loop
+            if self.summ_eic is None or self.ic is None:
+                raise ValueError(
+                    "ic or summ_eic is not available."
+                )
+            pred_risk =  get_g_comp(
+                eval_times=self.times,
+                hazards=self.hazards,
+                total_surv=self.event_free_survival_function,
+                target_time=self.target_times,  # type: ignore
+                target_events=self.target_events,  # type: ignore
+            )
+            pred_risk = pred_risk.merge(self.summ_eic, on=["Event", "Time"])
+            pred_risk["SE"] = pred_risk["seEIC"] / len(self)**0.5
+            pred_risk = pred_risk[["Event", "Time", "Risk", "SE"]]
+        pred_risk.rename(columns={"Risk": "Pt Est"}, inplace=True)
+        return pred_risk

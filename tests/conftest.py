@@ -8,8 +8,8 @@ from sklearn.linear_model import LogisticRegression
 from sksurv.linear_model import CoxPHSurvivalAnalysis
 from sksurv.util import Surv
 
-from pytmle.estimates import InitialEstimates
-
+from pytmle.estimates import InitialEstimates, UpdatedEstimates
+from pytmle.get_influence_curve import get_eic
 
 def get_mock_input_data(n_samples: int = 1000) -> pd.DataFrame:
     np.random.seed(42)
@@ -36,7 +36,7 @@ def get_mock_initial_estimates(df: pd.DataFrame) -> Dict[int, InitialEstimates]:
     treatment_model = LogisticRegression()
     treatment_model.fit(df[["x1", "x2", "x3"]], df["group"])
     propensity_scores = treatment_model.predict_proba(df[["x1", "x2", "x3"]])
-    propensity_scores[df["group"] == 0] = 1 - propensity_scores[df["group"] == 0]
+    #propensity_scores[df["group"] == 0] = 1 - propensity_scores[df["group"] == 0]
 
     # Estimate censoring survival function using Cox regression from scikit-survival
     # Create structured arrays for survival analysis
@@ -121,6 +121,26 @@ def mock_tmle_update_inputs() -> Dict[str, Any]:
     }
     return mock_inputs
 
+
+@pytest.fixture(params=[[1], [1,2]])
+def mock_updated_estimates(request, mock_tmle_update_inputs) -> Dict[int, UpdatedEstimates]:
+    target_events = request.param
+    updated_estimates = {
+        i: UpdatedEstimates.from_initial_estimates(
+            mock_tmle_update_inputs["initial_estimates"][i],
+            target_events=target_events,
+            target_times=mock_tmle_update_inputs["target_times"],
+        )
+        for i in mock_tmle_update_inputs["initial_estimates"].keys()
+    }
+    # TODO: Change to actual TMLE update function when implemented
+    updated_estimates = get_eic(
+        estimates=updated_estimates,
+        event_times=mock_tmle_update_inputs["event_times"],
+        event_indicator=mock_tmle_update_inputs["event_indicator"],
+        g_comp=True
+    )
+    return updated_estimates
 
 if __name__ == "__main__":
     mock_inputs = get_mock_input_data()

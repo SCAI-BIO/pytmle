@@ -3,7 +3,7 @@ import numpy as np
 import pandas as pd
 
 from pytmle.estimates import UpdatedEstimates
-
+from pytmle.g_computation import get_g_comp
 
 def get_eic(
     estimates: Dict[int, UpdatedEstimates],
@@ -50,6 +50,7 @@ def get_eic(
                 hazards=hazards,
                 total_surv=total_surv,
                 target_time=estimate.target_times,  # type: ignore
+                target_events=estimate.target_events,  # type: ignore
             )
 
         # Assign SummEIC and IC to the estimate
@@ -207,58 +208,6 @@ def get_haz_ls(
         haz_l[i, :] = np.where(eval_times <= t_tilde[i], haz_l[i, :], 0)
 
     return haz_l
-
-
-def get_g_comp(
-    eval_times: np.ndarray,
-    hazards: np.ndarray,
-    total_surv: np.ndarray,
-    target_time: List[float],
-) -> pd.DataFrame:
-    """
-    Calculates the G-computation estimate for a target cumulative incidence function (CIF)
-    based on given event hazards and survival functions over time.
-
-    Args:
-        eval_times (numpy.ndarray): Evaluation times for the cumulative incidence functions.
-        hazards (numpy.ndarray): Hazard matrix with rows as instances and columns as time points.
-        total_surv (numpy.ndarray): Survival probabilities over time for each instance.
-        target_time (numpy.ndarray): List of target times to evaluate in the influence curve.
-
-    Returns:
-        DataFrame: DataFrame with columns 'Event', 'Time', and 'Risk' containing the cumulative incidence estimates.
-    """
-    risks = []
-
-    for j in range(hazards.shape[-1]):
-        # Calculate cumulative risk for each instance (row) at each time point
-        risk_a = np.cumsum(total_surv * hazards[..., j], axis=1)
-
-        # Filter only the columns corresponding to target times
-        target_cols = eval_times[np.isin(eval_times, target_time)]
-        risk_a_target = risk_a[:, np.isin(eval_times, target_time)]
-
-        # Average over rows (instances) to get the mean cumulative incidence for each target time
-        f_j_tau = np.mean(risk_a_target, axis=0)
-
-        # Store results for each event type
-        for t, risk in zip(target_cols, f_j_tau):
-            risks.append({"Event": int(j + 1), "Time": t, "F.j.tau": risk})
-
-    # Convert to DataFrame
-    risks_df = pd.DataFrame(risks)
-
-    # Append row for overall survival (Event = -1)
-    total_risk = risks_df.groupby("Time")["F.j.tau"].sum()
-    total_risk_df = pd.DataFrame(
-        {"Event": -1, "Time": total_risk.index, "F.j.tau": total_risk.values}
-    )
-    risks_df = pd.concat([risks_df, total_risk_df], ignore_index=True)
-
-    # Rename 'F.j.tau' to 'Risk' in final DataFrame
-    risks_df.rename(columns={"F.j.tau": "Risk"}, inplace=True)
-
-    return risks_df[["Event", "Time", "Risk"]]
 
 
 def summarize_ic(ic_a: pd.DataFrame) -> pd.DataFrame:
