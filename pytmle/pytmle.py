@@ -78,7 +78,9 @@ class PyTMLE:
         self.key_1 = key_1
         self.key_0 = key_0
         self._fitted = False
-
+        self.has_converged = False
+        self.step_num = 0
+        self.norm_pn_eics = []
 
     def _check_inputs(
                 self, 
@@ -100,8 +102,13 @@ class PyTMLE:
         if len(data[col_group].unique()) != 2:
             raise ValueError("Only two groups are supported.")
         if initial_estimates is not None:
-                if key_1 not in initial_estimates.keys() or key_0 not in initial_estimates.keys():
-                    raise ValueError("key_1 and key_0 have to be in line with the keys of the given initial estimates.")
+            if (
+                key_1 not in initial_estimates.keys()
+                or key_0 not in initial_estimates.keys()
+            ):
+                raise ValueError(
+                    "key_1 and key_0 have to be in line with the keys of the given initial estimates."
+                )
         if not 0 in data[col_event_indicator]:
             raise ValueError("Censoring has to be indicated by 0 in the event_indicator column.")
         unique_events = np.unique(data[col_event_indicator])
@@ -113,7 +120,6 @@ class PyTMLE:
             raise ValueError("All target times have to be smaller or equal to the maximum event time in the data.")
         if target_times is not None and min(target_times) < 0:
             raise ValueError("All target times have to be positive.")
-
 
     def _get_initial_estimates(self, cv_folds: int):
         if self._initial_estimates is None:
@@ -156,46 +162,57 @@ class PyTMLE:
         else:
             logger.info("Using given censoring survival estimates")
 
-
-    def _update_estimates(self, max_updates: int, 
-                          min_nuisance: Optional[float]):
+    def _update_estimates(
+        self, max_updates: int, min_nuisance: Optional[float], one_step_eps: float
+    ):
         assert self._initial_estimates is not None, "Initial estimates have to be available before calling _update_estimates()."
         for k in self._initial_estimates:
             assert self._initial_estimates[k] is not None, "Initial estimates have to be available before calling _update_estimates()."
         logger.info("Starting TMLE update loop...")
-        self._updated_estimates = tmle_update(self._initial_estimates,
-                                      event_times=self._event_times,
-                                      event_indicator=self._event_indicator,
-                                      target_times=self.target_times,
-                                      target_events=self.target_events,
-                                      max_updates=max_updates,
-                                      min_nuisance=min_nuisance,
-                                      g_comp=self.g_comp) # type: ignore
+        (
+            self._updated_estimates,
+            self.norm_pn_eics,
+            self.has_converged,
+            self.step_num,
+        ) = tmle_update(
+            self._initial_estimates,
+            event_times=self._event_times,
+            event_indicator=self._event_indicator,
+            target_times=self.target_times,
+            target_events=self.target_events,
+            max_updates=max_updates,
+            min_nuisance=min_nuisance,
+            one_step_eps=one_step_eps,
+            g_comp=self.g_comp,
+        )  # type: ignore
 
-
-    def fit(self, 
-            cv_folds: int = 10,
-            max_updates: int = 500,
-            min_nuisance: Optional[float] = None,):
+    def fit(
+        self,
+        cv_folds: int = 10,
+        max_updates: int = 500,
+        min_nuisance: Optional[float] = None,
+        one_step_eps: float = 0.1,
+    ):
         """
         Fit the TMLE model.
 
         Parameters
         ----------
         cv_folds : int, optional
-            Number of cross-validation folds for the initial estimate models. 
+            Number of cross-validation folds for the initial estimate models.
             The number is the same for the inner and outer loop used by the super learners. Default is 10.
         max_updates : int
             Maximum number of updates to the estimates in the TMLE loop. Default is 500.
         min_nuisance : Optional[float], optional
             Value between 0 and 1 for truncating the g-related denomiator of the clever covariate. Default is None.
+        one_step_eps : float
+            Initial epsilon for the one-step update. Default is 0.1.
         """
         if self._fitted:
             raise RuntimeError("Model has already been fitted. fit() can only be called once.")
         self._get_initial_estimates(cv_folds)
-        self._update_estimates(max_updates, min_nuisance)
+        self._update_estimates(max_updates, min_nuisance, one_step_eps)
         self._fitted = True
-
 
     def predict(self, type: str = "risks", alpha: float = 0.05, g_comp: bool = False) -> pd.DataFrame:
         """
@@ -231,8 +248,9 @@ class PyTMLE:
                             key_1=self.key_1,
                             key_0=self.key_0)
         else: 
-            raise ValueError(f"Only 'risks', 'ratio' and 'diff' are supported as type, got {type}.")
-        
+            raise ValueError(
+                f"Only 'risks', 'ratio' and 'diff' are supported as type, got {type}."
+            )
 
     def plot(self, 
              save_path: Optional[str] = None,
@@ -288,7 +306,6 @@ class PyTMLE:
             plt.savefig(save_path)
             plt.close()
         return fig, axes
-    
 
     def plot_nuisance_weights(self,
                               save_dir_path: Optional[str] = None,
@@ -318,3 +335,18 @@ class PyTMLE:
             else:
                 plt.show()
             plt.close()
+
+    def plot_norm_pn_eic(
+        self,
+        save_dir_path: Optional[str] = None,
+    ):
+        _, ax = plt.subplots(figsize=(10, 6))
+        ax.plot(self.norm_pn_eics, marker="o")
+        ax.set_title("Norm of the Pointwise Nuisance Function", fontsize=16)
+        ax.set_xlabel("Iteration")
+        ax.set_ylabel("norm_pn_eic")
+        if save_dir_path is not None:
+            plt.savefig(save_dir_path)
+        else:
+            plt.show()
+        plt.close()

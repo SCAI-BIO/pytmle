@@ -175,7 +175,6 @@ def plot_nuisance_weights(updated_estimates: UpdatedEstimates,
     if updated_estimates.target_times is not None:
         target_times += list(updated_estimates.target_times)
 
-
     times_idx = [0] + [i for i, time in enumerate(updated_estimates.times) if time in target_times]
     for t_idx, t in zip(times_idx, target_times):
         nuisance_weight = 1 / updated_estimates.nuisance_weight[:, t_idx]
@@ -192,7 +191,7 @@ def plot_nuisance_weights(updated_estimates: UpdatedEstimates,
 
         # vertical line for min_nuisance
         plt.axvline(x=updated_estimates.min_nuisance, color='gray', linestyle='--', label='Min. Nuisance')
-        
+
         plt.suptitle(f'Nuisance weights at time t={t} for positivity check', fontsize=15)
         if t==0:
             plt.title('Weights close to 0 or 1 warn of possible positivity violations', fontsize=13)

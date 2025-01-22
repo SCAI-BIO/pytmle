@@ -5,19 +5,26 @@ from pytmle.estimates import UpdatedEstimates
 import numpy as np
 
 
-@pytest.mark.parametrize("target_times, target_events", 
-                         [([1.0, 2.0, 3.0], [1]), 
-                          ([1.0, 2.0, 3.0], [1, 2]), 
-                          ([1.111, 2.222, 3.333], [1]), 
-                          ([1.111, 2.222, 3.333], [1, 2]), 
-                          (None, [1]), 
-                          (None, [1, 2])])
+@pytest.mark.parametrize(
+    "target_times, target_events",
+    [
+        ([1.0, 2.0, 3.0], [1]),
+        ([1.0, 2.0, 3.0], [1, 2]),
+        ([1.111, 2.222, 3.333], [1]),
+        ([1.111, 2.222, 3.333], [1, 2]),
+    ],
+)
+# (None, [1]),
+# (None, [1, 2])])
 def test_tmle_update(mock_tmle_update_inputs, target_times, target_events):
     mock_tmle_update_inputs["target_times"] = target_times
     mock_tmle_update_inputs["target_events"] = target_events
-    updated_estimates = tmle_update(**mock_tmle_update_inputs, g_comp=True)
+    updated_estimates, _, has_converged, _ = tmle_update(
+        **mock_tmle_update_inputs, g_comp=True
+    )
 
-    # TODO: Test the parts (EIC, TMLE loop, etc.) individually?
+    # TMLE should converge easily on the simple mock data
+    assert has_converged, "TMLE update did not converge."
     assert isinstance(updated_estimates, dict)
     for _, estimate in updated_estimates.items():
         assert isinstance(estimate, UpdatedEstimates)

@@ -33,15 +33,22 @@ def test_fit(mock_main_class_inputs, precomputed_initial_est_mask):
                  target_times=[1.0, 2.0, 3.0],
                  target_events=[1, 2],
                  initial_estimates=initial_estimates)
-    
-    tmle.fit()
-    assert tmle._fitted
 
-    # tmle.plot("/home/jguski/COMMUTE/tmle/plot.png", 
-    #         type="risks", 
-    #         g_comp=True,
-    #         color_1="#c00000", 
-    #         color_0="#699aaf")
-    # tmle.plot_nuisance_weights("/home/jguski/COMMUTE/tmle/nuisance_weights_plots",
-    #                           color_1="#c00000", 
-    #                           color_0="#699aaf")
+    tmle.fit(max_updates=100)
+    assert tmle._fitted
+    # TMLE should converge easily on the simple mock data
+    assert tmle.has_converged, "TMLE update did not converge."
+
+    # tmle.plot(
+    #     "/home/jguski/COMMUTE/tmle/plot.png",
+    #     type="risks",
+    #     g_comp=True,
+    #     color_1="#c00000",
+    #     color_0="#699aaf",
+    # )
+    # tmle.plot_nuisance_weights(
+    #     "/home/jguski/COMMUTE/tmle/nuisance_weights_plots",
+    #     color_1="#c00000",
+    #     color_0="#699aaf",
+    # )
+    # tmle.plot_norm_pn_eic("/home/jguski/COMMUTE/tmle/norm_pn_eic.png")

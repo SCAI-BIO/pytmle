@@ -58,7 +58,6 @@ class UpdatedEstimates(InitialEstimates):
     # is set on initialization
     nuisance_weight: Optional[np.ndarray] = field(default=None, init=False)
 
-    has_converged: bool = field(default=False)
     min_nuisance: Optional[float] = field(default=None)
     target_events: Optional[List[int]] = field(default=None)
     target_times: Optional[List[float]] = field(default=None)
@@ -73,12 +72,12 @@ class UpdatedEstimates(InitialEstimates):
                 / (len(self.propensity_scores) ** 0.5)
                 / (np.log(len(self.propensity_scores)))
             )
-        self._set_nuisance_weight()
         if self.target_times is None:
             # default if not target_times are given: only target the last time point
             self.target_times = [self.times[-1]]
         else:
             self._update_for_target_times()
+        self._set_nuisance_weight()
 
     def _set_nuisance_weight(self):
         nuisance_denominator = (
@@ -133,7 +132,7 @@ class UpdatedEstimates(InitialEstimates):
 
         # Combine and sort the times
         all_times = np.sort(np.unique(np.concatenate((self.times, [0] + self.target_times))))  # type: ignore
-    
+
         if len(all_times) > len(self.times):
 
             # Update hazards, event_free_survival_function, and censoring_survival_function
@@ -146,7 +145,7 @@ class UpdatedEstimates(InitialEstimates):
             # Find the indices where the new times should be inserted
             insert_times = [t for t in self.target_times if t not in self.times]
             insert_indices = np.searchsorted(all_times, insert_times)
-            
+
             self.times = all_times
             self.hazards = np.insert(self.hazards, insert_indices, 0, axis=1)
             self.event_free_survival_function = np.insert(

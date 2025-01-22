@@ -16,7 +16,7 @@ def get_mock_input_data(n_samples: int = 1000) -> pd.DataFrame:
 
     data = {
         "group": np.random.binomial(1, 0.5, n_samples),
-        "event_indicator": np.random.choice([0, 1, 2], n_samples, p=[0.7, 0.2, 0.1]),
+        "event_indicator": np.random.choice([0, 1, 2], n_samples, p=[0.6, 0.2, 0.2]),
         "event_time": np.round(np.random.exponential(scale=10, size=n_samples), 2),
         "x1": np.random.normal(0, 1, n_samples),
         "x2": np.random.normal(0, 1, n_samples),
@@ -118,7 +118,7 @@ def mock_main_class_inputs() -> Dict[str, Any]:
         "data": df
     }
     return mock_inputs
-    
+
 
 @pytest.fixture()
 def mock_tmle_update_inputs() -> Dict[str, Any]:
@@ -129,6 +129,7 @@ def mock_tmle_update_inputs() -> Dict[str, Any]:
         "target_times": [1.0, 2.0, 3.0, 10.0, 20.0],
         "event_times": df["event_time"].values,
         "event_indicator": df["event_indicator"].values,
+        "max_updates": 100,
     }
     return mock_inputs
 
