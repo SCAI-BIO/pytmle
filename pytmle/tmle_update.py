@@ -168,7 +168,7 @@ def tmle_loop(
             if target_times is None:
                 target_times = est_a.target_times
             new_hazards = update_hazards(
-                g_star=est_a.propensity_scores,
+                g_star=est_a.g_star_obs,
                 hazards=est_a.hazards,
                 total_surv=est_a.event_free_survival_function,
                 nuisance_weight=est_a.nuisance_weight,
