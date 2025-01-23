@@ -109,7 +109,7 @@ class PyTMLE:
                 raise ValueError(
                     "key_1 and key_0 have to be in line with the keys of the given initial estimates."
                 )
-        if not 0 in data[col_event_indicator]:
+        if not (data[col_event_indicator] == 0).any():
             raise ValueError("Censoring has to be indicated by 0 in the event_indicator column.")
         unique_events = np.unique(data[col_event_indicator])
         if not unique_events[-1] - unique_events[0] == len(unique_events) - 1:
@@ -344,7 +344,7 @@ class PyTMLE:
         ax.plot(self.norm_pn_eics, marker="o")
         ax.set_title("Norm of the Pointwise Nuisance Function", fontsize=16)
         ax.set_xlabel("Iteration")
-        ax.set_ylabel("norm_pn_eic")
+        ax.set_ylabel("||PnEIC||")
         if save_dir_path is not None:
             plt.savefig(save_dir_path)
         else:

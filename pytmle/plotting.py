@@ -200,7 +200,6 @@ def plot_nuisance_weights(updated_estimates: UpdatedEstimates,
         plt.xlabel(r'$\pi(a|w) \, S_c(t|a,w)$', fontsize=13)
         plt.xlim(0,1)
         plt.ylabel('Density', fontsize=13)
-        plt.legend(title='Group')
-        plt.show()
+        plt.legend(title="Group")
 
         yield fig, ax, t

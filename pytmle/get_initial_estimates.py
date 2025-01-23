@@ -7,16 +7,20 @@ from typing import Tuple
 def fit_default_propensity_model(X: np.ndarray,
                                  y: np.ndarray,
                                  cv_folds: int) -> Tuple[np.ndarray, np.ndarray]:
-    base_learners = [('rf', RandomForestClassifier()),
-                    ('gb', GradientBoostingClassifier()),
-                    ('lr', LogisticRegression(max_iter=200))]
-    super_learner = StackingClassifier(estimators=base_learners,
-                                       final_estimator=LogisticRegression(max_iter=200),
-                                       cv=cv_folds)
+    base_learners = [
+        ("rf", RandomForestClassifier()),
+        ("gb", GradientBoostingClassifier()),
+    ]
+    # ('lr', LogisticRegression(max_iter=200))] # don't use for now because of convergence issues
+    super_learner = StackingClassifier(
+        estimators=base_learners,
+        final_estimator=LogisticRegression(max_iter=1000),
+        cv=cv_folds,
+    )
 
     # This may overfit on the training data -> use cross_val_predict instead
-    #super_learner.fit(X, y)
-    #pred = super_learner.predict(X)
+    # super_learner.fit(X, y)
+    # pred = super_learner.predict(X)
 
     # Use cross_val_predict to generate out-of-fold predictions
     pred = cross_val_predict(super_learner, X, y, cv=cv_folds, method='predict_proba')
