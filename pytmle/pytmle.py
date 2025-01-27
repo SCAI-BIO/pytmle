@@ -81,6 +81,7 @@ class PyTMLE:
         self.has_converged = False
         self.step_num = 0
         self.norm_pn_eics = []
+        self.models = {}
 
     def _check_inputs(
                 self, 
@@ -120,8 +121,13 @@ class PyTMLE:
             raise ValueError("All target times have to be smaller or equal to the maximum event time in the data.")
         if target_times is not None and min(target_times) < 0:
             raise ValueError("All target times have to be positive.")
+        # TODO: Either make the selection of target events more flexible or remove the option altogether (such that all non-zero events are targeted).
+        if not (np.array_equal(target_events, np.arange(1, len(target_events) + 1))):
+            raise ValueError(
+                "target_events must be consecutive integers starting from 1."
+            )
 
-    def _get_initial_estimates(self, cv_folds: int):
+    def _get_initial_estimates(self, cv_folds: int, save_models: bool):
         if self._initial_estimates is None:
             self._initial_estimates = {self.key_1:
                                        InitialEstimates(g_star_obs = self._group,
@@ -134,9 +140,15 @@ class PyTMLE:
         if (self._initial_estimates[self.key_1].propensity_scores is None or 
             self._initial_estimates[self.key_0].propensity_scores is None):
             logger.info("Estimating propensity scores...")
-            propensity_scores_1, propensity_scores_0 = fit_default_propensity_model(X=self._X, 
-                                                                                    y=self._group, 
-                                                                                    cv_folds=cv_folds)
+            propensity_scores_1, propensity_scores_0, model_dict = (
+                fit_default_propensity_model(
+                    X=self._X,
+                    y=self._group,
+                    cv_folds=cv_folds,
+                    return_model=save_models,
+                )
+            )
+            self.models.update(model_dict)
             self._initial_estimates[self.key_1].propensity_scores = propensity_scores_1
             self._initial_estimates[self.key_0].propensity_scores = propensity_scores_0
         else:
@@ -146,7 +158,16 @@ class PyTMLE:
             self._initial_estimates[self.key_1].event_free_survival_function is None or 
             self._initial_estimates[self.key_0].event_free_survival_function is None):
             logger.info("Estimating hazards and event-free survival...")
-            hazards_1, hazards_0, surv_1, surv_0 = fit_default_risk_model()
+            hazards_1, hazards_0, surv_1, surv_0, model_dict = fit_default_risk_model(
+                X=self._X,
+                trt=self._group,
+                event_times=self._event_times,
+                event_indicator=self._event_indicator,
+                target_events=self.target_events,
+                cv_folds=cv_folds,
+                return_model=save_models,
+            )
+            self.models.update(model_dict)
             self._initial_estimates[self.key_1].hazards = hazards_1
             self._initial_estimates[self.key_1].event_free_survival_function = surv_1
             self._initial_estimates[self.key_0].hazards = hazards_0
@@ -156,7 +177,15 @@ class PyTMLE:
         if (self._initial_estimates[self.key_1].censoring_survival_function is None or 
             self._initial_estimates[self.key_0].censoring_survival_function is None):
             logger.info("Estimating censoring survival...")
-            cens_surv_1, cens_surv_0 = fit_default_censoring_model()
+            cens_surv_1, cens_surv_0, model_dict = fit_default_censoring_model(
+                X=self._X,
+                trt=self._group,
+                event_times=self._event_times,
+                event_indicator=self._event_indicator,
+                cv_folds=cv_folds,
+                return_model=save_models,
+            )
+            self.models.update(model_dict)
             self._initial_estimates[self.key_1].censoring_survival_function = cens_surv_1
             self._initial_estimates[self.key_0].censoring_survival_function = cens_surv_0
         else:
@@ -192,6 +221,7 @@ class PyTMLE:
         max_updates: int = 500,
         min_nuisance: Optional[float] = None,
         one_step_eps: float = 0.1,
+        save_models: bool = False,
     ):
         """
         Fit the TMLE model.
@@ -207,10 +237,12 @@ class PyTMLE:
             Value between 0 and 1 for truncating the g-related denomiator of the clever covariate. Default is None.
         one_step_eps : float
             Initial epsilon for the one-step update. Default is 0.1.
+        save_models : bool, optional
+            Whether to save the models used for the initial estimates. Default is False.
         """
         if self._fitted:
             raise RuntimeError("Model has already been fitted. fit() can only be called once.")
-        self._get_initial_estimates(cv_folds)
+        self._get_initial_estimates(cv_folds, save_models)
         self._update_estimates(max_updates, min_nuisance, one_step_eps)
         self._fitted = True
 
