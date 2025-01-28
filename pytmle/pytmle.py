@@ -12,7 +12,7 @@ import matplotlib.pyplot as plt
 from typing import Optional, List, Dict
 
 logger = logging.getLogger(__name__)
-
+logging.basicConfig(level=logging.INFO)
 
 class PyTMLE:
     def __init__(self, 
@@ -78,7 +78,10 @@ class PyTMLE:
         self.key_1 = key_1
         self.key_0 = key_0
         self._fitted = False
-
+        self.has_converged = False
+        self.step_num = 0
+        self.norm_pn_eics = []
+        self.models = {}
 
     def _check_inputs(
                 self, 
@@ -100,9 +103,14 @@ class PyTMLE:
         if len(data[col_group].unique()) != 2:
             raise ValueError("Only two groups are supported.")
         if initial_estimates is not None:
-                if key_1 not in initial_estimates.keys() or key_0 not in initial_estimates.keys():
-                    raise ValueError("key_1 and key_0 have to be in line with the keys of the given initial estimates.")
-        if not 0 in data[col_event_indicator]:
+            if (
+                key_1 not in initial_estimates.keys()
+                or key_0 not in initial_estimates.keys()
+            ):
+                raise ValueError(
+                    "key_1 and key_0 have to be in line with the keys of the given initial estimates."
+                )
+        if not (data[col_event_indicator] == 0).any():
             raise ValueError("Censoring has to be indicated by 0 in the event_indicator column.")
         unique_events = np.unique(data[col_event_indicator])
         if not unique_events[-1] - unique_events[0] == len(unique_events) - 1:
@@ -113,9 +121,13 @@ class PyTMLE:
             raise ValueError("All target times have to be smaller or equal to the maximum event time in the data.")
         if target_times is not None and min(target_times) < 0:
             raise ValueError("All target times have to be positive.")
+        # TODO: Either make the selection of target events more flexible or remove the option altogether (such that all non-zero events are targeted).
+        if not (np.array_equal(target_events, np.arange(1, len(target_events) + 1))):
+            raise ValueError(
+                "target_events must be consecutive integers starting from 1."
+            )
 
-
-    def _get_initial_estimates(self, cv_folds: int):
+    def _get_initial_estimates(self, cv_folds: int, save_models: bool):
         if self._initial_estimates is None:
             self._initial_estimates = {self.key_1:
                                        InitialEstimates(g_star_obs = self._group,
@@ -128,9 +140,15 @@ class PyTMLE:
         if (self._initial_estimates[self.key_1].propensity_scores is None or 
             self._initial_estimates[self.key_0].propensity_scores is None):
             logger.info("Estimating propensity scores...")
-            propensity_scores_1, propensity_scores_0 = fit_default_propensity_model(X=self._X, 
-                                                                                    y=self._group, 
-                                                                                    cv_folds=cv_folds)
+            propensity_scores_1, propensity_scores_0, model_dict = (
+                fit_default_propensity_model(
+                    X=self._X,
+                    y=self._group,
+                    cv_folds=cv_folds,
+                    return_model=save_models,
+                )
+            )
+            self.models.update(model_dict)
             self._initial_estimates[self.key_1].propensity_scores = propensity_scores_1
             self._initial_estimates[self.key_0].propensity_scores = propensity_scores_0
         else:
@@ -140,7 +158,16 @@ class PyTMLE:
             self._initial_estimates[self.key_1].event_free_survival_function is None or 
             self._initial_estimates[self.key_0].event_free_survival_function is None):
             logger.info("Estimating hazards and event-free survival...")
-            hazards_1, hazards_0, surv_1, surv_0 = fit_default_risk_model()
+            hazards_1, hazards_0, surv_1, surv_0, model_dict = fit_default_risk_model(
+                X=self._X,
+                trt=self._group,
+                event_times=self._event_times,
+                event_indicator=self._event_indicator,
+                target_events=self.target_events,
+                cv_folds=cv_folds,
+                return_model=save_models,
+            )
+            self.models.update(model_dict)
             self._initial_estimates[self.key_1].hazards = hazards_1
             self._initial_estimates[self.key_1].event_free_survival_function = surv_1
             self._initial_estimates[self.key_0].hazards = hazards_0
@@ -150,52 +177,74 @@ class PyTMLE:
         if (self._initial_estimates[self.key_1].censoring_survival_function is None or 
             self._initial_estimates[self.key_0].censoring_survival_function is None):
             logger.info("Estimating censoring survival...")
-            cens_surv_1, cens_surv_0 = fit_default_censoring_model()
+            cens_surv_1, cens_surv_0, model_dict = fit_default_censoring_model(
+                X=self._X,
+                trt=self._group,
+                event_times=self._event_times,
+                event_indicator=self._event_indicator,
+                cv_folds=cv_folds,
+                return_model=save_models,
+            )
+            self.models.update(model_dict)
             self._initial_estimates[self.key_1].censoring_survival_function = cens_surv_1
             self._initial_estimates[self.key_0].censoring_survival_function = cens_surv_0
         else:
             logger.info("Using given censoring survival estimates")
 
-
-    def _update_estimates(self, max_updates: int, 
-                          min_nuisance: Optional[float]):
+    def _update_estimates(
+        self, max_updates: int, min_nuisance: Optional[float], one_step_eps: float
+    ):
         assert self._initial_estimates is not None, "Initial estimates have to be available before calling _update_estimates()."
         for k in self._initial_estimates:
             assert self._initial_estimates[k] is not None, "Initial estimates have to be available before calling _update_estimates()."
         logger.info("Starting TMLE update loop...")
-        self._updated_estimates = tmle_update(self._initial_estimates,
-                                      event_times=self._event_times,
-                                      event_indicator=self._event_indicator,
-                                      target_times=self.target_times,
-                                      target_events=self.target_events,
-                                      max_updates=max_updates,
-                                      min_nuisance=min_nuisance,
-                                      g_comp=self.g_comp) # type: ignore
+        (
+            self._updated_estimates,
+            self.norm_pn_eics,
+            self.has_converged,
+            self.step_num,
+        ) = tmle_update(
+            self._initial_estimates,
+            event_times=self._event_times,
+            event_indicator=self._event_indicator,
+            target_times=self.target_times,
+            target_events=self.target_events,
+            max_updates=max_updates,
+            min_nuisance=min_nuisance,
+            one_step_eps=one_step_eps,
+            g_comp=self.g_comp,
+        )  # type: ignore
 
-
-    def fit(self, 
-            cv_folds: int = 10,
-            max_updates: int = 500,
-            min_nuisance: Optional[float] = None,):
+    def fit(
+        self,
+        cv_folds: int = 10,
+        max_updates: int = 500,
+        min_nuisance: Optional[float] = None,
+        one_step_eps: float = 0.1,
+        save_models: bool = False,
+    ):
         """
         Fit the TMLE model.
 
         Parameters
         ----------
         cv_folds : int, optional
-            Number of cross-validation folds for the initial estimate models. 
+            Number of cross-validation folds for the initial estimate models.
             The number is the same for the inner and outer loop used by the super learners. Default is 10.
         max_updates : int
             Maximum number of updates to the estimates in the TMLE loop. Default is 500.
         min_nuisance : Optional[float], optional
             Value between 0 and 1 for truncating the g-related denomiator of the clever covariate. Default is None.
+        one_step_eps : float
+            Initial epsilon for the one-step update. Default is 0.1.
+        save_models : bool, optional
+            Whether to save the models used for the initial estimates. Default is False.
         """
         if self._fitted:
             raise RuntimeError("Model has already been fitted. fit() can only be called once.")
-        self._get_initial_estimates(cv_folds)
-        self._update_estimates(max_updates, min_nuisance)
+        self._get_initial_estimates(cv_folds, save_models)
+        self._update_estimates(max_updates, min_nuisance, one_step_eps)
         self._fitted = True
-
 
     def predict(self, type: str = "risks", alpha: float = 0.05, g_comp: bool = False) -> pd.DataFrame:
         """
@@ -231,8 +280,9 @@ class PyTMLE:
                             key_1=self.key_1,
                             key_0=self.key_0)
         else: 
-            raise ValueError(f"Only 'risks', 'ratio' and 'diff' are supported as type, got {type}.")
-        
+            raise ValueError(
+                f"Only 'risks', 'ratio' and 'diff' are supported as type, got {type}."
+            )
 
     def plot(self, 
              save_path: Optional[str] = None,
@@ -288,15 +338,17 @@ class PyTMLE:
             plt.savefig(save_path)
             plt.close()
         return fig, axes
-    
 
-    def plot_nuisance_weights(self,
-                              save_dir_path: Optional[str] = None,
-                              color_1: Optional[str] = None, 
-                              color_0: Optional[str] = None):
+    def plot_nuisance_weights(
+        self,
+        save_dir_path: Optional[str] = None,
+        color_1: Optional[str] = None,
+        color_0: Optional[str] = None,
+        only_baseline: bool = False,
+    ):
         """
         Plot the nuisance weights.
-        
+
         Parameters
         ----------
         save_dir_path : Optional[str], optional
@@ -305,6 +357,8 @@ class PyTMLE:
             Color for the treatment group. Default is None.
         color_0 : Optional[str], optional
             Color for the control group. Default is None.
+        only_baseline : bool, optional
+            Whether to only plot the nuisance weights at t=0. Default is False.
         """
         if self._updated_estimates is None: 
             raise RuntimeError("Updated estimates must have been initialized before calling plot_nuisance_weights().")
@@ -318,3 +372,20 @@ class PyTMLE:
             else:
                 plt.show()
             plt.close()
+            if only_baseline:
+                break
+
+    def plot_norm_pn_eic(
+        self,
+        save_dir_path: Optional[str] = None,
+    ):
+        _, ax = plt.subplots(figsize=(10, 6))
+        ax.plot(self.norm_pn_eics, marker="o")
+        ax.set_title("Norm of the Pointwise Nuisance Function", fontsize=16)
+        ax.set_xlabel("Iteration")
+        ax.set_ylabel("||PnEIC||")
+        if save_dir_path is not None:
+            plt.savefig(save_dir_path)
+        else:
+            plt.show()
+        plt.close()

@@ -3,3 +3,4 @@ __pycache__/
 pytmle.egg-info/
 build/
 *.ipynb
+!notebooks/*.ipynb

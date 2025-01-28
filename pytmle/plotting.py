@@ -175,24 +175,23 @@ def plot_nuisance_weights(updated_estimates: UpdatedEstimates,
     if updated_estimates.target_times is not None:
         target_times += list(updated_estimates.target_times)
 
-
     times_idx = [0] + [i for i, time in enumerate(updated_estimates.times) if time in target_times]
     for t_idx, t in zip(times_idx, target_times):
         nuisance_weight = 1 / updated_estimates.nuisance_weight[:, t_idx]
         g_star_obs = updated_estimates.g_star_obs
 
         # Filter the data
-        weights_g1 = nuisance_weight[g_star_obs == 1]
         weights_g0 = nuisance_weight[g_star_obs == 0]
+        weights_g1 = nuisance_weight[g_star_obs == 1]
 
         # Plot the density functions
         fig, ax = plt.subplots(figsize=(10, 6))
-        sns.kdeplot(weights_g1, label='1', shade=True, color=color_1)
-        sns.kdeplot(weights_g0, label='0', shade=True, color=color_0)
+        sns.kdeplot(weights_g0, label="0", fill=True, color=color_0)
+        sns.kdeplot(weights_g1, label="1", fill=True, color=color_1)
 
         # vertical line for min_nuisance
         plt.axvline(x=updated_estimates.min_nuisance, color='gray', linestyle='--', label='Min. Nuisance')
-        
+
         plt.suptitle(f'Nuisance weights at time t={t} for positivity check', fontsize=15)
         if t==0:
             plt.title('Weights close to 0 or 1 warn of possible positivity violations', fontsize=13)
@@ -201,7 +200,6 @@ def plot_nuisance_weights(updated_estimates: UpdatedEstimates,
         plt.xlabel(r'$\pi(a|w) \, S_c(t|a,w)$', fontsize=13)
         plt.xlim(0,1)
         plt.ylabel('Density', fontsize=13)
-        plt.legend(title='Group')
-        plt.show()
+        plt.legend(title="Group")
 
         yield fig, ax, t
