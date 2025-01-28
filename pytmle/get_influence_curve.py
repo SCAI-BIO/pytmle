@@ -127,14 +127,14 @@ def get_ic(
                 # Initialize the matrix for non-likelihood event indicators
                 nlds = np.zeros_like(h_fs)
                 for i, time in enumerate(t_tilde):
-                    if delta[i] == l and time <= tau:
+                    if delta[i] == l + 1 and time <= tau:
                         if i < nlds.shape[0]:
                             nlds[i, np.where(eval_times == time)[0][0]] = 1
 
                 haz_ls = get_haz_ls(
                     t_tilde=t_tilde,
                     eval_times=eval_times[eval_times <= tau],
-                    haz_l=hazards[:, : len(eval_times[eval_times <= tau]), l],
+                    haz_l=hazards[:, : len(eval_times[eval_times <= tau]), l].copy(),
                 )
 
                 # Sum contributions for IC

@@ -76,49 +76,52 @@ def update_hazards(
     """
     updated_hazards = np.zeros_like(hazards)
 
-    for i in range(hazards.shape[-1]):
-        hazard = hazards[..., i]
-        event_type = i + 1
-        if event_type not in target_event:
+    for l in range(1, hazards.shape[-1] + 1):
+        if l not in target_event:
             # TODO: Check if it is correct to not update non-target hazards (in concrete, all events other than censoring are automatically made target events: https://github.com/imbroglio-dc/concrete/blob/main/R/formatArguments.R#L567)
             continue
         # Initialize the update term
-        update_term = np.zeros_like(hazard)
+        update_term = np.zeros_like(hazards[..., l - 1])
+        hazard = hazards[..., l - 1]
 
-        for tau in target_time:
+        for j in target_event:
             # Compute F.j.t for the current event type
-            f_j_t = np.cumsum(hazard * total_surv, axis=1)
+            f_j_t = np.cumsum(hazards[..., j - 1] * total_surv, axis=1)
+            for tau in target_time:
+                # Initialize matrices for clever covariate computation
+                h_fs = np.zeros_like(f_j_t)
+                clev_cov = np.zeros_like(f_j_t)
 
-            # Initialize matrices for clever covariate computation
-            h_fs = np.zeros_like(f_j_t)
-            clev_cov = np.zeros_like(f_j_t)
+                # Compute h.FS for times <= tau
+                mask = eval_times <= tau
+                h_fs[:, mask] = (
+                    f_j_t[:, eval_times == tau].repeat(np.sum(mask), axis=1)
+                    - f_j_t[:, mask]
+                ) / total_surv[:, mask]
 
-            # Compute h.FS for times <= tau
-            mask = eval_times <= tau
-            h_fs[:, mask] = (
-                f_j_t[:, eval_times == tau].repeat(np.sum(mask), axis=1)
-                - f_j_t[:, mask]
-            ) / total_surv[:, mask]
+                # Compute clever covariate using the helper function
+                clev_cov[:, mask] = get_clever_covariate(
+                    g_star=g_star,
+                    nuisance_weight=nuisance_weight[:, mask],
+                    h_fs=h_fs[:, mask],
+                    leq_j=int(l == j),
+                )
 
-            # Compute clever covariate using the helper function
-            clev_cov[:, mask] = get_clever_covariate(
-                g_star=g_star,
-                nuisance_weight=nuisance_weight[:, mask],
-                h_fs=h_fs[:, mask],
-                leq_j=int(event_type in target_event),
-            )
+                # Weight the clever covariate by PnEIC
+                pn_eic_weights = pn_eic[
+                    (pn_eic["Time"] == tau) & (pn_eic["Event"] == j)
+                ]["PnEIC"].values
 
-            # Weight the clever covariate by PnEIC
-            pn_eic_weights = pn_eic[(pn_eic['Time'] == tau) & (pn_eic['Event'] == event_type)]["PnEIC"].values
-
-            if pn_eic_weights.size > 0:
-                pn_eic_weights = pn_eic_weights[:, np.newaxis]  # Add axis for broadcasting
-            clev_cov *= pn_eic_weights
-            update_term += clev_cov
+                if pn_eic_weights.size > 0:
+                    pn_eic_weights = pn_eic_weights[
+                        :, np.newaxis
+                    ]  # Add axis for broadcasting
+                clev_cov *= pn_eic_weights
+                update_term += clev_cov
 
         # Apply exponential update to the hazard function
         updated_hazard = hazard * np.exp(update_term * one_step_eps / norm_pn_eic)
-        updated_hazards[..., i] = updated_hazard
+        updated_hazards[..., l - 1] = updated_hazard
 
     return updated_hazards
 
