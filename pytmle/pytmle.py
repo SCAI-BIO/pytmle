@@ -12,7 +12,7 @@ import matplotlib.pyplot as plt
 from typing import Optional, List, Dict
 
 logger = logging.getLogger(__name__)
-
+logging.basicConfig(level=logging.INFO)
 
 class PyTMLE:
     def __init__(self, 
@@ -339,13 +339,16 @@ class PyTMLE:
             plt.close()
         return fig, axes
 
-    def plot_nuisance_weights(self,
-                              save_dir_path: Optional[str] = None,
-                              color_1: Optional[str] = None, 
-                              color_0: Optional[str] = None):
+    def plot_nuisance_weights(
+        self,
+        save_dir_path: Optional[str] = None,
+        color_1: Optional[str] = None,
+        color_0: Optional[str] = None,
+        only_baseline: bool = False,
+    ):
         """
         Plot the nuisance weights.
-        
+
         Parameters
         ----------
         save_dir_path : Optional[str], optional
@@ -354,6 +357,8 @@ class PyTMLE:
             Color for the treatment group. Default is None.
         color_0 : Optional[str], optional
             Color for the control group. Default is None.
+        only_baseline : bool, optional
+            Whether to only plot the nuisance weights at t=0. Default is False.
         """
         if self._updated_estimates is None: 
             raise RuntimeError("Updated estimates must have been initialized before calling plot_nuisance_weights().")
@@ -367,6 +372,8 @@ class PyTMLE:
             else:
                 plt.show()
             plt.close()
+            if only_baseline:
+                break
 
     def plot_norm_pn_eic(
         self,

@@ -103,7 +103,7 @@ def fit_default_risk_model(
         hazards_0.append(np.diff(cum_haz_0, prepend=0))
         cum_hazards_1.append(cum_haz_1)
         cum_hazards_0.append(cum_haz_0)
-        models[f"event_{event}"] = model
+        models[f"event_{event}_model"] = model
     haz_1 = np.stack(hazards_1, axis=-1)
     haz_0 = np.stack(hazards_0, axis=-1)
     cum_haz_1 = np.stack(cum_hazards_1, axis=-1)

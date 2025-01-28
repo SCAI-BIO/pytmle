@@ -181,13 +181,13 @@ def plot_nuisance_weights(updated_estimates: UpdatedEstimates,
         g_star_obs = updated_estimates.g_star_obs
 
         # Filter the data
-        weights_g1 = nuisance_weight[g_star_obs == 1]
         weights_g0 = nuisance_weight[g_star_obs == 0]
+        weights_g1 = nuisance_weight[g_star_obs == 1]
 
         # Plot the density functions
         fig, ax = plt.subplots(figsize=(10, 6))
-        sns.kdeplot(weights_g1, label='1', shade=True, color=color_1)
-        sns.kdeplot(weights_g0, label='0', shade=True, color=color_0)
+        sns.kdeplot(weights_g0, label="0", fill=True, color=color_0)
+        sns.kdeplot(weights_g1, label="1", fill=True, color=color_1)
 
         # vertical line for min_nuisance
         plt.axvline(x=updated_estimates.min_nuisance, color='gray', linestyle='--', label='Min. Nuisance')
