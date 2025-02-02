@@ -155,6 +155,7 @@ def tmle_loop(
         bool: Flag indicating convergence.
         int: Number of TMLE update steps.
     """
+    logger.info("Starting TMLE loop.")
     working_eps = one_step_eps
     norm_pn_eics = [norm_pn_eic]
 
@@ -163,6 +164,7 @@ def tmle_loop(
 
     while step_num < max_updates and iter_num < max_updates * 2:
         iter_num += 1
+        logger.debug(f"Iteration {iter_num}: Starting update step {step_num + 1}.")
 
         # Get updated hazards and EICs
         new_ests = {}
@@ -200,12 +202,16 @@ def tmle_loop(
                 g_comp_est=est_a.g_comp_est,
             )
 
+        logger.debug("Updated hazards and survival functions computed.")
+
         # get EIC for updated estimates
         new_ests = get_eic(
             estimates=new_ests,
             event_times=t_tilde,
             event_indicator=delta,
         )
+
+        logger.debug("Efficient influence curves (EIC) computed for updated estimates.")
 
         # Check for improvement
         new_summ_eic = combine_summarized_eic(new_ests)
@@ -221,10 +227,12 @@ def tmle_loop(
             raise ValueError("Update failed: Survival reached zero.")
 
         if norm_pn_eic < new_norm_pn_eic:
+            logger.debug("No improvement in norm PnEIC, reducing epsilon.")
             working_eps /= 2
             continue
 
         step_num += 1
+        logger.info(f"Step {step_num}: Norm PnEIC improved to {new_norm_pn_eic}.")
 
         # Update estimates
         estimates.update(new_ests)
@@ -242,10 +250,6 @@ def tmle_loop(
             logger.info(f"TMLE converged at step {step_num}.")
             return new_ests, norm_pn_eics, True, step_num
 
-    # Warning for non-convergence
-    logger.warning(
-        f"Warning: TMLE has not converged by step {max_updates}. Estimates may not have the desired asymptotic properties."
-    )
     return estimates, norm_pn_eics, False, step_num
 
 
