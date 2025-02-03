@@ -135,6 +135,7 @@ def tmle_loop(
     max_updates,
     one_step_eps,
     norm_pn_eic,
+    verbose,
 ) -> Tuple[Dict[int, UpdatedEstimates], List[float], bool, int]:
     """
     Perform the TMLE update procedure for estimates.
@@ -148,6 +149,7 @@ def tmle_loop(
         max_updates (int): Maximum number of TMLE update iterations.
         one_step_eps (float): Initial epsilon for one-step update.
         norm_pn_eic (float): Norm of the efficient influence curve.
+        verbose (bool): Flag to enable or disable logging.
 
     Returns:
         dict: Updated estimates after TMLE procedure.
@@ -155,7 +157,9 @@ def tmle_loop(
         bool: Flag indicating convergence.
         int: Number of TMLE update steps.
     """
-    logger.info("Starting TMLE loop.")
+    if not verbose:
+        logging.disable(logging.CRITICAL)
+
     working_eps = one_step_eps
     norm_pn_eics = [norm_pn_eic]
 
@@ -250,6 +254,11 @@ def tmle_loop(
             logger.info(f"TMLE converged at step {step_num}.")
             return new_ests, norm_pn_eics, True, step_num
 
+    # Warning for non-convergence
+    logger.warning(
+        f"Warning: TMLE has not converged by step {max_updates}. Estimates may not have the desired asymptotic properties."
+    )
+
     return estimates, norm_pn_eics, False, step_num
 
 
@@ -263,6 +272,7 @@ def tmle_update(
     min_nuisance: Optional[float] = None,
     g_comp: bool = False,
     one_step_eps: float = 0.1,
+    verbose: bool = True,
 ) -> Tuple[Dict[int, UpdatedEstimates], List[float], bool, int]:
     """
     Function to update the initial estimates using the TMLE algorithm.
@@ -287,6 +297,8 @@ def tmle_update(
         Whether to return the g-computation estimates. Default is False.
     one_step_eps : float
         Initial epsilon for the one-step update. Default is 0.1.
+    verbose : bool
+        Flag to enable or disable logging. Default is True.
 
     Returns
     -------
@@ -342,4 +354,5 @@ def tmle_update(
         max_updates=max_updates,
         one_step_eps=one_step_eps,
         norm_pn_eic=norm_pn_eic,
+        verbose=verbose,
     )

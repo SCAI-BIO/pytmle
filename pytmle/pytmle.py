@@ -25,7 +25,8 @@ class PyTMLE:
                  g_comp: bool = True,
                  key_1: int = 1,
                  key_0: int = 0,
-                 initial_estimates: Optional[Dict[int, InitialEstimates]] = None):
+                 initial_estimates: Optional[Dict[int, InitialEstimates]] = None,
+                 verbose: bool = True):
         """
         Initialize the PyTMLE model.
 
@@ -51,7 +52,8 @@ class PyTMLE:
             The key representing the control group. Default is 0.
         initial_estimates : Optional[Dict[int, InitialEstimates]], optional
             Dict with pre-computed initial estimates for the two potential outcomes. Default is None.
-    
+        verbose : bool, optional
+            Whether to print verbose output. Default is True.
         """
         self._check_inputs(data, 
                            col_event_times, 
@@ -77,6 +79,7 @@ class PyTMLE:
         self.g_comp = g_comp
         self.key_1 = key_1
         self.key_0 = key_0
+        self.verbose = verbose
         self._fitted = False
         self.has_converged = False
         self.step_num = 0
@@ -213,6 +216,7 @@ class PyTMLE:
             min_nuisance=min_nuisance,
             one_step_eps=one_step_eps,
             g_comp=self.g_comp,
+            verbose=self.verbose,
         )  # type: ignore
 
     def fit(
