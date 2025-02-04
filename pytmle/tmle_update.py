@@ -251,10 +251,12 @@ def tmle_loop(
         )
 
         if all(new_summ_eic["check"]):
+            logging.disable(logging.NOTSET)
             logger.info(f"TMLE converged at step {step_num}.")
             return new_ests, norm_pn_eics, True, step_num
 
     # Warning for non-convergence
+    logging.disable(logging.NOTSET)
     logger.warning(
         f"Warning: TMLE has not converged by step {max_updates}. Estimates may not have the desired asymptotic properties."
     )
