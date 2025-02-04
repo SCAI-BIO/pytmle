@@ -135,6 +135,7 @@ def tmle_loop(
     max_updates,
     one_step_eps,
     norm_pn_eic,
+    verbose,
 ) -> Tuple[Dict[int, UpdatedEstimates], List[float], bool, int]:
     """
     Perform the TMLE update procedure for estimates.
@@ -148,6 +149,7 @@ def tmle_loop(
         max_updates (int): Maximum number of TMLE update iterations.
         one_step_eps (float): Initial epsilon for one-step update.
         norm_pn_eic (float): Norm of the efficient influence curve.
+        verbose (bool): Flag to enable or disable logging.
 
     Returns:
         dict: Updated estimates after TMLE procedure.
@@ -155,6 +157,9 @@ def tmle_loop(
         bool: Flag indicating convergence.
         int: Number of TMLE update steps.
     """
+    if not verbose:
+        logging.disable(logging.CRITICAL)
+
     working_eps = one_step_eps
     norm_pn_eics = [norm_pn_eic]
 
@@ -163,6 +168,7 @@ def tmle_loop(
 
     while step_num < max_updates and iter_num < max_updates * 2:
         iter_num += 1
+        logger.debug(f"Iteration {iter_num}: Starting update step {step_num + 1}.")
 
         # Get updated hazards and EICs
         new_ests = {}
@@ -200,12 +206,16 @@ def tmle_loop(
                 g_comp_est=est_a.g_comp_est,
             )
 
+        logger.debug("Updated hazards and survival functions computed.")
+
         # get EIC for updated estimates
         new_ests = get_eic(
             estimates=new_ests,
             event_times=t_tilde,
             event_indicator=delta,
         )
+
+        logger.debug("Efficient influence curves (EIC) computed for updated estimates.")
 
         # Check for improvement
         new_summ_eic = combine_summarized_eic(new_ests)
@@ -221,10 +231,12 @@ def tmle_loop(
             raise ValueError("Update failed: Survival reached zero.")
 
         if norm_pn_eic < new_norm_pn_eic:
+            logger.debug("No improvement in norm PnEIC, reducing epsilon.")
             working_eps /= 2
             continue
 
         step_num += 1
+        logger.info(f"Step {step_num}: Norm PnEIC improved to {new_norm_pn_eic}.")
 
         # Update estimates
         estimates.update(new_ests)
@@ -239,13 +251,16 @@ def tmle_loop(
         )
 
         if all(new_summ_eic["check"]):
+            logging.disable(logging.NOTSET)
             logger.info(f"TMLE converged at step {step_num}.")
             return new_ests, norm_pn_eics, True, step_num
 
     # Warning for non-convergence
+    logging.disable(logging.NOTSET)
     logger.warning(
         f"Warning: TMLE has not converged by step {max_updates}. Estimates may not have the desired asymptotic properties."
     )
+
     return estimates, norm_pn_eics, False, step_num
 
 
@@ -259,6 +274,7 @@ def tmle_update(
     min_nuisance: Optional[float] = None,
     g_comp: bool = False,
     one_step_eps: float = 0.1,
+    verbose: bool = True,
 ) -> Tuple[Dict[int, UpdatedEstimates], List[float], bool, int]:
     """
     Function to update the initial estimates using the TMLE algorithm.
@@ -283,6 +299,8 @@ def tmle_update(
         Whether to return the g-computation estimates. Default is False.
     one_step_eps : float
         Initial epsilon for the one-step update. Default is 0.1.
+    verbose : bool
+        Flag to enable or disable logging. Default is True.
 
     Returns
     -------
@@ -338,4 +356,5 @@ def tmle_update(
         max_updates=max_updates,
         one_step_eps=one_step_eps,
         norm_pn_eic=norm_pn_eic,
+        verbose=verbose,
     )
