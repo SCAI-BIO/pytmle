@@ -54,11 +54,12 @@ def test_ate_ratio(mock_updated_estimates):
         result = ate_ratio(mock_updated_estimates, g_comp=g_comp, key_1=1, key_0=0)
         results[estimator] = result
         assert isinstance(result, pd.DataFrame)
-        assert set(result.columns) == {"Time", "Event", "Pt Est", "SE", "CI_lower", "CI_upper", "p_value"}
+        assert set(result.columns) == {"Time", "Event", "Pt Est", "SE", "CI_lower", "CI_upper", "p_value", "E_value", "E_value CI"}
         assert result["SE"].isna().all() == g_comp # should be all NA for g_comp=True
         assert result["CI_lower"].isna().all() == g_comp # should be all NA for g_comp=True
         assert result["CI_upper"].isna().all() == g_comp # should be all NA for g_comp=True
         assert result["p_value"].isna().all() == g_comp # should be all NA for g_comp=True
+        assert result["E_value CI"].isna().all() == g_comp # should be all NA for g_comp=True
         assert len(result) == len(mock_updated_estimates[0].target_times) * len(mock_updated_estimates[1].target_events)
 
     # test plotting
@@ -77,11 +78,12 @@ def test_ate_diff(mock_updated_estimates):
         result = ate_diff(mock_updated_estimates, g_comp=g_comp, key_1=1, key_0=0)
         results[estimator] = result
         assert isinstance(result, pd.DataFrame)
-        assert set(result.columns) == {"Time", "Event", "Pt Est", "SE", "CI_lower", "CI_upper", "p_value"}
+        assert set(result.columns) == {"Time", "Event", "Pt Est", "SE", "CI_lower", "CI_upper", "p_value", "E_value", "E_value CI"}
         assert result["SE"].isna().all() == g_comp # should be all NA for g_comp=True
         assert result["CI_lower"].isna().all() == g_comp # should be all NA for g_comp=True
         assert result["CI_upper"].isna().all() == g_comp # should be all NA for g_comp=True
         assert result["p_value"].isna().all() == g_comp # should be all NA for g_comp=True
+        assert result["E_value CI"].isna().all() == g_comp # should be all NA for g_comp=True
         assert len(result) == len(mock_updated_estimates[0].target_times) * len(mock_updated_estimates[1].target_events)
 
     # test plotting
