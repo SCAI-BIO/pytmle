@@ -381,45 +381,61 @@ class PyTMLE:
 
     def plot_nuisance_weights(
         self,
+        time: Optional[float] = None,
         save_dir_path: Optional[str] = None,
         color_1: Optional[str] = None,
         color_0: Optional[str] = None,
-        only_baseline: bool = False,
+        plot_size: Tuple[float, float] = (6.4, 4.8),
     ):
         """
         Plot the nuisance weights.
 
         Parameters
         ----------
+        time : Optional[float], optional
+            Time at which to plot the nuisance weights. If None, all target times are plotted. Default is None.
         save_dir_path : Optional[str], optional
             Path to directory to save the plots. Default is None.
         color_1 : Optional[str], optional
             Color for the treatment group. Default is None.
         color_0 : Optional[str], optional
             Color for the control group. Default is None.
-        only_baseline : bool, optional
-            Whether to only plot the nuisance weights at t=0. Default is False.
         """
         if self._updated_estimates is None: 
             raise RuntimeError("Updated estimates must have been initialized before calling plot_nuisance_weights().")
         if save_dir_path is not None and not os.path.exists(save_dir_path):
             os.makedirs(save_dir_path)
-        for _, _, time in plot_nuisance_weights(self._updated_estimates[self.key_1], 
-                                                color_1=color_1, 
-                                                color_0=color_0):
+        if time is not None:
+            assert (
+                time in self.target_times or time == 0
+            ), f"Time has to be 0 or one of the target times {self.target_times}."
+            target_times = [time]
+        else:
+            target_times = [0.0] + list(self.target_times)
+        for _, _, time in plot_nuisance_weights(
+            target_times=target_times,
+            times=self._updated_estimates[self.key_1].times,  # type: ignore
+            min_nuisance=self._updated_estimates[self.key_1].min_nuisance,  # type: ignore
+            nuisance_weights=self._updated_estimates[
+                self.key_1
+            ].nuisance_weight,  # type: ignore
+            g_star_obs=self._updated_estimates[self.key_1].g_star_obs,
+            plot_size=plot_size,
+            color_1=color_1,
+            color_0=color_0,
+        ):
             if save_dir_path is not None:
                 plt.savefig(f'{save_dir_path}/nuisance_weights_t{time}.png')
             else:
                 plt.show()
             plt.close()
-            if only_baseline:
-                break
 
     def plot_norm_pn_eic(
         self,
         save_dir_path: Optional[str] = None,
+        plot_size: Tuple[float, float] = (6.4, 4.8),
     ):
-        _, ax = plt.subplots(figsize=(10, 6))
+        _, ax = plt.subplots(figsize=plot_size)
         ax.plot(self.norm_pn_eics, marker="o")
         ax.set_title("Norm of the Pointwise Nuisance Function", fontsize=16)
         ax.set_xlabel("Iteration")

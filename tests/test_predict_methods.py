@@ -18,7 +18,14 @@ def test_predict_mean_risks(mock_updated_estimates):
         g_comp = not g_comp # invert g_comp flag for next iteration to check both behaviors
 
         # test plotting (of nuisance weights)
-        for _, _, time in plot_nuisance_weights(mock_updated_estimates[k], color_1="#c00000", color_0="#699aaf"):
+        for _, _, time in plot_nuisance_weights(target_times=mock_updated_estimates[k].target_times,
+                                                times=mock_updated_estimates[k].times,
+                                                min_nuisance=mock_updated_estimates[k].min_nuisance,
+                                                nuisance_weights=mock_updated_estimates[k].nuisance_weight,
+                                                g_star_obs=mock_updated_estimates[k].g_star_obs,
+                                                plot_size=(14, 7),
+                                                color_1="#c00000", 
+                                                color_0="#699aaf"):
             plt.savefig(f'/tmp/test_nuisance_weights_plot_t{time}.png')  # Save the plot to a file
             assert os.path.exists(f'/tmp/test_nuisance_weights_plot_t{time}.png')  # Check if the plot file exists
             os.remove(f'/tmp/test_nuisance_weights_plot_t{time}.png')  # Clean up the file after the test
