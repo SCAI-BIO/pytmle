@@ -423,7 +423,7 @@ class PyTMLE:
             color_0=color_0,
         ):
             if save_dir_path is not None:
-                plt.savefig(f'{save_dir_path}/nuisance_weights_t{time}.png')
+                plt.savefig(f'{save_dir_path}/nuisance_weights_t{time}.png', bbox_inches="tight")
             else:
                 plt.show()
             plt.close()
@@ -439,7 +439,7 @@ class PyTMLE:
         ax.set_xlabel("Iteration")
         ax.set_ylabel("||PnEIC||")
         if save_dir_path is not None:
-            plt.savefig(save_dir_path)
+            plt.savefig(save_dir_path, bbox_inches="tight")
         else:
             plt.show()
         plt.close()
@@ -487,7 +487,7 @@ class PyTMLE:
             plot_size=plot_size,
         ):
             if save_dir_path is not None:
-                plt.savefig(f"{save_dir_path}/evalue_contours_{event}_t{time}.png")
+                plt.savefig(f"{save_dir_path}/evalue_contours_{event}_t{time}.png", bbox_inches="tight")
             else:
                 plt.show()
             plt.close()
