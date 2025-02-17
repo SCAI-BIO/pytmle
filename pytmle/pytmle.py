@@ -104,11 +104,9 @@ class PyTMLE:
         if evalues_benchmark:
             if initial_estimates is not None:
                 logger.warning(
-                    "E-values benchmark for measured confounders is not supported for pre-computed initial estimates. Will be skipped."
+                     "E-values benchmark for measured covariates may be incorrect if pre-computed initial estimates are provided because the measured covariates need to be dropped during model fitting."
                 )
-                self.evalues_benchmark = EvaluesBenchmark()
-            else:
-                self.evalues_benchmark = EvaluesBenchmark(self)
+            self.evalues_benchmark = EvaluesBenchmark(self)
         else:
             self.evalues_benchmark = EvaluesBenchmark()
 

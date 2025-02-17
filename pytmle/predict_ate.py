@@ -210,8 +210,8 @@ def ate_diff(
     pred_diffs["Pt Est"] = pred_risk_1["Pt Est"] - pred_risk_0["Pt Est"]
 
     if not g_comp:
-        ic_1 = updated_estimates[key_1].ic.set_index(["Event", "Time"])
-        ic_0 = updated_estimates[key_0].ic.set_index(["Event", "Time"])
+        ic_1 = updated_estimates[key_1].ic.set_index(["Event", "Time"])["IC"]
+        ic_0 = updated_estimates[key_0].ic.set_index(["Event", "Time"])["IC"]
 
         if ic_1 is None or ic_0 is None:
             raise ValueError("IC is not available for one or both groups.")
