@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 
 class EvaluesBenchmark:
     """
-    Class to compute observed E-values like proposed by McGowan and Greevy (2020) (https://arxiv.org/pdf/2011.07030).
+    Class to compute observed covariate E-values like proposed by McGowan and Greevy (2020) (https://arxiv.org/pdf/2011.07030).
     """
 
     def __init__(self, model=None):
@@ -43,7 +43,7 @@ class EvaluesBenchmark:
             logger.info(f"Computing E-Value benchmark for {f}...")
             tmle = deepcopy(self.model)
             tmle._X = np.delete(tmle._X, i, axis=1)
-            tmle.fit(**kwargs)
+            tmle.fit(max_updates=max_updates, **kwargs)
             # get ratio estimates for the benchmark model
             rr = tmle.predict("ratio")
             rr["type"] = "ratio"
