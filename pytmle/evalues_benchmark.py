@@ -36,7 +36,7 @@ class EvaluesBenchmark:
             return
         if max_updates > 100:
             logger.warning(
-                f"Running E-values benchmark can take a long time because a PyTMLE model is fitted with up to {max_updates} for each of {len(self.benchmark_features)}. Consider reducing the max_updates."
+                f"Running E-values benchmark can take a long time because a PyTMLE model is fitted with up to {max_updates} for each of {len(self.benchmark_features)} features. Consider reducing the max_updates."
             )
         evalues_df_list = []
         for i, f in enumerate(self.benchmark_features):
