@@ -4,6 +4,9 @@ import pandas as pd
 
 from pytmle.estimates import UpdatedEstimates
 from scipy.stats import norm
+import logging
+
+logger = logging.getLogger(__name__)
 
 def get_counterfactual_risks(updated_estimates: Dict[int, UpdatedEstimates], 
                          g_comp: bool = False,
@@ -52,7 +55,7 @@ def get_evalues_rr(
     rr: pd.Series,
     ci_lower: Optional[pd.Series] = None,
     ci_upper: Optional[pd.Series] = None,
-) -> Tuple[pd.Series, Optional[pd.Series]]:
+) -> Tuple[pd.Series, Optional[pd.Series], Optional[pd.Series]]:
     """
     Compute the E-values for the Risk Ratio (RR) estimate.
 
@@ -62,7 +65,7 @@ def get_evalues_rr(
         ci_upper (pd.Series): Upper bound of the confidence interval.
 
     Returns:
-        Tuple[pd.Series, Optional[pd.Series]]: E-values for the RR estimate and the confidence interval.
+        Tuple[pd.Series, Optional[pd.Series], Optional[pd.Series]]: E-values for the RR estimate, the confidence interval, and the CI limit closer to the null.
     """
     # compute E-values for the point estimate
     e = rr.apply(threshold)
@@ -74,8 +77,12 @@ def get_evalues_rr(
         e_lower = np.where(null_ci, 1, ci_lower.apply(threshold))
         e_upper = np.where(null_ci, 1, ci_upper.apply(threshold))
 
-        return e, pd.Series(np.where(rr > 1, e_lower, e_upper))
-    return e, None
+        return (
+            e,
+            pd.Series(np.where(rr > 1, e_lower, e_upper)),
+            pd.Series(np.where(rr > 1, "lower", "upper")),
+        )
+    return e, None, None
 
 
 def ate_ratio(
@@ -131,26 +138,28 @@ def ate_ratio(
         # p-values
         z_stat = (pred_ratios["Pt Est"] - 1) / pred_ratios["SE"]
         pred_ratios["p_value"] = 2 * (1 - norm.cdf(np.abs(z_stat)))
-        evalues, evalues_ci = get_evalues_rr(
+        evalues, evalues_ci, evalues_ci_limit = get_evalues_rr(
             pred_ratios["Pt Est"], pred_ratios["CI_lower"], pred_ratios["CI_upper"]
         )
         pred_ratios["E_value"] = evalues
         pred_ratios["E_value CI"] = evalues_ci
+        pred_ratios["E_value CI limit"] = evalues_ci_limit
     else:
         pred_ratios["SE"] = np.nan
         pred_ratios["CI_lower"] = np.nan
         pred_ratios["CI_upper"] = np.nan
         pred_ratios["p_value"] = np.nan
-        evalues, _ = get_evalues_rr(pred_ratios["Pt Est"])
+        evalues, _, _ = get_evalues_rr(pred_ratios["Pt Est"])
         pred_ratios["E_value"] = evalues
         pred_ratios["E_value CI"] = np.nan
+        pred_ratios["E_value CI limit"] = np.nan
 
     return pred_ratios
 
 
 def get_evalues_rd(
     rd: pd.Series, se: Optional[pd.Series] = None
-) -> Tuple[pd.Series, Optional[pd.Series]]:
+) -> Tuple[pd.Series, Optional[pd.Series], Optional[pd.Series]]:
     """
     Compute the E-values for the Risk Difference (RD) estimate.
     Approximation as described in https://dash.harvard.edu/bitstream/handle/1/36874927/EValue_FinalSubmission.pdf, p. 37
@@ -160,7 +169,7 @@ def get_evalues_rd(
         se (pd.Series): Standard error for the Risk Difference.
 
     Returns:
-        Tuple[pd.Series, Optional[pd.Series]]: E-values for the RD estimate and the confidence interval.
+        Tuple[pd.Series, Optional[pd.Series]]: E-values for the RD estimate, the confidence interval, and the CI limit closer to the null.
     """
     #
     rr = pd.Series(np.exp(0.91 * rd))
@@ -220,16 +229,20 @@ def ate_diff(
         # p-values
         z_stat = pred_diffs["Pt Est"] / pred_diffs["SE"]
         pred_diffs["p_value"] = 2 * (1 - norm.cdf(np.abs(z_stat)))
-        evalues, evalues_ci = get_evalues_rd(pred_diffs["Pt Est"], pred_diffs["SE"])
+        evalues, evalues_ci, evalues_ci_limit = get_evalues_rd(
+            pred_diffs["Pt Est"], pred_diffs["SE"]
+        )
         pred_diffs["E_value"] = evalues
         pred_diffs["E_value CI"] = evalues_ci
+        pred_diffs["E_value CI limit"] = evalues_ci_limit
     else:
         pred_diffs["SE"] = np.nan
         pred_diffs["CI_lower"] = np.nan
         pred_diffs["CI_upper"] = np.nan
         pred_diffs["p_value"] = np.nan
-        evalues, _ = get_evalues_rd(pred_diffs["Pt Est"])
+        evalues, _, _ = get_evalues_rd(pred_diffs["Pt Est"])
         pred_diffs["E_value"] = evalues
         pred_diffs["E_value CI"] = np.nan
+        pred_diffs["E_value CI limit"] = np.nan
 
     return pred_diffs

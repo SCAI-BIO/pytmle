@@ -1,7 +1,12 @@
 from .estimates import InitialEstimates
 from .get_initial_estimates import fit_default_propensity_model, fit_default_risk_model, fit_default_censoring_model
 from .tmle_update import tmle_update
-from .predict_ate import get_counterfactual_risks, ate_ratio, ate_diff
+from .predict_ate import (
+    get_counterfactual_risks,
+    ate_ratio,
+    ate_diff,
+)
+from .evalues_benchmark import EvaluesBenchmark
 from .plotting import plot_risks, plot_ate, plot_nuisance_weights
 
 import os
@@ -9,24 +14,28 @@ import logging
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict, Tuple
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 
 class PyTMLE:
-    def __init__(self, 
-                 data: pd.DataFrame,
-                 col_event_times: str = "event_time",
-                 col_event_indicator: str = "event_indicator",
-                 col_group: str = "group",
-                 target_times: Optional[List[float]] = None,
-                 target_events: List[int] = [1],
-                 g_comp: bool = True,
-                 key_1: int = 1,
-                 key_0: int = 0,
-                 initial_estimates: Optional[Dict[int, InitialEstimates]] = None,
-                 verbose: bool = True):
+
+    def __init__(
+        self,
+        data: pd.DataFrame,
+        col_event_times: str = "event_time",
+        col_event_indicator: str = "event_indicator",
+        col_group: str = "group",
+        target_times: Optional[List[float]] = None,
+        target_events: List[int] = [1],
+        g_comp: bool = True,
+        evalues_benchmark: bool = False,
+        key_1: int = 1,
+        key_0: int = 0,
+        initial_estimates: Optional[Dict[int, InitialEstimates]] = None,
+        verbose: bool = True,
+    ):
         """
         Initialize the PyTMLE model.
 
@@ -46,6 +55,8 @@ class PyTMLE:
             List of event types to target. Default is [1].
         g_comp : bool, optional
             Whether to use g-computation for initial estimates. Default is True.
+        evalues_benchmark : bool, optional
+            Whether to compute E-values for measured confounders. Default is False.
         key_1 : int, optional
             The key representing the treatment group. Default is 1.
         key_0 : int, optional
@@ -66,7 +77,12 @@ class PyTMLE:
                            initial_estimates)
         self._initial_estimates = initial_estimates
         self._updated_estimates = None
-        self._X = data.drop(columns=[col_event_times, col_event_indicator, col_group]).to_numpy()
+        self._X = data.drop(
+            columns=[col_event_times, col_event_indicator, col_group]
+        ).to_numpy()
+        self._feature_names = data.drop(
+            columns=[col_event_times, col_event_indicator, col_group]
+        ).columns
         self._event_times = data[col_event_times].to_numpy()
         self._event_indicator = data[col_event_indicator].to_numpy()
         self._group = data[col_group].to_numpy()
@@ -85,6 +101,16 @@ class PyTMLE:
         self.step_num = 0
         self.norm_pn_eics = []
         self.models = {}
+        if evalues_benchmark:
+            if initial_estimates is not None:
+                logger.warning(
+                    "E-values benchmark for measured confounders is not supported for pre-computed initial estimates. Will be skipped."
+                )
+                self.evalues_benchmark = EvaluesBenchmark()
+            else:
+                self.evalues_benchmark = EvaluesBenchmark(self)
+        else:
+            self.evalues_benchmark = EvaluesBenchmark()
 
     def _check_inputs(
                 self, 
@@ -250,6 +276,16 @@ class PyTMLE:
         self._update_estimates(max_updates, min_nuisance, one_step_eps)
         self._fitted = True
 
+        # running E-value benchmark
+        if self.evalues_benchmark is not None:
+            self.evalues_benchmark.benchmark(
+                full_model=self,
+                cv_folds=cv_folds,
+                max_updates=max_updates,
+                min_nuisance=min_nuisance,
+                one_step_eps=one_step_eps,
+            )
+
     def predict(self, type: str = "risks", alpha: float = 0.05, g_comp: bool = False) -> pd.DataFrame:
         """
         Predict the counterfactual risks or average treatment effect.
@@ -393,3 +429,51 @@ class PyTMLE:
         else:
             plt.show()
         plt.close()
+
+    def plot_evalue_contours(
+        self,
+        save_dir_path: Optional[str] = None,
+        time: Optional[float] = None,
+        event: Optional[int] = None,
+        type: str = "ratio",
+        num_points_per_contour: int = 200,
+        color_point_estimate: str = "blue",
+        color_ci: str = "red",
+        color_benchmarking: str = "green",
+        plot_size: Tuple[float, float] = (6.4, 4.8),
+    ):
+        if not self._fitted:
+            raise RuntimeError(
+                "Model has to be fitted before calling plot_evalue_contours()."
+            )
+        if save_dir_path is not None and not os.path.exists(save_dir_path):
+            os.makedirs(save_dir_path)
+        if time is not None:
+            assert (
+                time in self.target_times
+            ), f"Time has to be one of the target times {self.target_times}."
+            target_times = [time]
+        else:
+            target_times = self.target_times
+        if event is not None:
+            assert (
+                event in self.target_events
+            ), f"Event has to be one of the target events {self.target_events}."
+            target_events = [event]
+        else:
+            target_events = self.target_events
+        for _, _, time, event in self.evalues_benchmark.plot(
+            target_times=target_times,
+            target_events=target_events,
+            ate_type=type,
+            num_points_per_contour=num_points_per_contour,
+            color_point_estimate=color_point_estimate,
+            color_ci=color_ci,
+            color_benchmarking=color_benchmarking,
+            plot_size=plot_size,
+        ):
+            if save_dir_path is not None:
+                plt.savefig(f"{save_dir_path}/evalue_contours_{event}_t{time}.png")
+            else:
+                plt.show()
+            plt.close()
