@@ -158,7 +158,7 @@ def ate_ratio(
 
 
 def get_evalues_rd(
-    rd: pd.Series, se: Optional[pd.Series] = None
+    rd: pd.Series, se: Optional[pd.Series] = None, alpha: float = 0.05
 ) -> Tuple[pd.Series, Optional[pd.Series], Optional[pd.Series]]:
     """
     Compute the E-values for the Risk Difference (RD) estimate.
@@ -174,8 +174,8 @@ def get_evalues_rd(
     #
     rr = pd.Series(np.exp(0.91 * rd))
     if se is not None:
-        ci_lower = pd.Series(np.exp(0.91 * rd - 1.78 * se))
-        ci_upper = pd.Series(np.exp(0.91 * rd + 1.78 * se))
+        ci_lower = pd.Series(np.exp(0.91 * rd - 0.91 * norm.ppf(1 - alpha / 2) * se))
+        ci_upper = pd.Series(np.exp(0.91 * rd + 0.91 * norm.ppf(1 - alpha / 2) * se))
         return get_evalues_rr(rr, ci_lower, ci_upper)
     return get_evalues_rr(rr)
 
@@ -230,7 +230,7 @@ def ate_diff(
         z_stat = pred_diffs["Pt Est"] / pred_diffs["SE"]
         pred_diffs["p_value"] = 2 * (1 - norm.cdf(np.abs(z_stat)))
         evalues, evalues_ci, evalues_ci_limit = get_evalues_rd(
-            pred_diffs["Pt Est"], pred_diffs["SE"]
+            pred_diffs["Pt Est"], pred_diffs["SE"], alpha=alpha
         )
         pred_diffs["E_value"] = evalues
         pred_diffs["E_value CI"] = evalues_ci
@@ -240,7 +240,7 @@ def ate_diff(
         pred_diffs["CI_lower"] = np.nan
         pred_diffs["CI_upper"] = np.nan
         pred_diffs["p_value"] = np.nan
-        evalues, _, _ = get_evalues_rd(pred_diffs["Pt Est"])
+        evalues, _, _ = get_evalues_rd(pred_diffs["Pt Est"], alpha=alpha)
         pred_diffs["E_value"] = evalues
         pred_diffs["E_value CI"] = np.nan
         pred_diffs["E_value CI limit"] = np.nan

@@ -3,6 +3,7 @@ from copy import deepcopy
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+from scipy.stats import norm
 from typing import Generator, List, Tuple
 
 logger = logging.getLogger(__name__)
@@ -23,15 +24,15 @@ class EvaluesBenchmark:
             self.skip_benchmark = True
         self.benchmarking_results = None
 
-    def benchmark(self, full_model, max_updates=100, **kwargs):
-        self.rr_full = full_model.predict("ratio")
-        self.rd_full = full_model.predict("diff")
+    def benchmark(self, full_model, max_updates: int = 100, alpha: float = 0.05, **kwargs):
+        self.rr_full = full_model.predict("ratio", alpha=alpha)
+        self.rd_full = full_model.predict("diff", alpha=alpha)
         self.rr_full["Limiting bound"] = np.where(self.rr_full["E_value CI limit"]=="lower", self.rr_full["CI_lower"], self.rr_full["CI_upper"])
         # transformed RR and CIs proposed by VanderWeele and Ding (2017)
-        self.rd_full["RR"] = np.exp(0.91*self.rd_full["Pt Est"])
+        self.rd_full["RR"] = np.exp(0.91 * self.rd_full["Pt Est"])
         self.rd_full["Limiting bound"]  = np.where(self.rd_full["E_value CI limit"]=="lower", 
-                              np.exp(0.91*self.rd_full["Pt Est"]-1.78* self.rd_full["SE"]), 
-                              np.exp(0.91*self.rd_full["Pt Est"]+1.78* self.rd_full["SE"]))
+                              np.exp(0.91 * self.rd_full["Pt Est"] - 0.91 * norm.ppf(1 - alpha / 2) * self.rd_full["SE"]), 
+                              np.exp(0.91 * self.rd_full["Pt Est"] + 0.91 * norm.ppf(1 - alpha / 2) * self.rd_full["SE"]))
         if self.skip_benchmark:
             return
         if max_updates > 100:
@@ -58,8 +59,8 @@ class EvaluesBenchmark:
             rd["type"] = "diff"
             rd["benchmark_feature"] = f
             ci_rd = np.where(self.rd_full["E_value CI limit"]=="lower", 
-                            np.exp(0.91*rd["Pt Est"]-1.78* rd["SE"]), 
-                            np.exp(0.91*rd["Pt Est"]+1.78* rd["SE"]))
+                            np.exp(0.91 * rd["Pt Est"] - 0.91 * norm.ppf(1 - alpha / 2) * rd["SE"]), 
+                            np.exp(0.91 * rd["Pt Est"] + 0.91 * norm.ppf(1 - alpha / 2) * rd["SE"]))
             rd["E_value measured"] = [
                 self._observed_covariate_evalue(ci, ci_new) 
                 for ci, ci_new in zip(self.rd_full["Limiting bound"], ci_rd)

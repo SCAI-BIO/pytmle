@@ -250,6 +250,7 @@ class PyTMLE:
         min_nuisance: Optional[float] = None,
         one_step_eps: float = 0.1,
         save_models: bool = False,
+        alpha: float = 0.05,
     ):
         """
         Fit the TMLE model.
@@ -267,6 +268,8 @@ class PyTMLE:
             Initial epsilon for the one-step update. Default is 0.1.
         save_models : bool, optional
             Whether to save the models used for the initial estimates. Default is False.
+        alpha : float, optional 
+            The alpha level for confidence intervals (relevant only for E-value benchmark). Default is 0.05.
         """
         if self._fitted:
             raise RuntimeError("Model has already been fitted. fit() can only be called once.")
@@ -282,6 +285,7 @@ class PyTMLE:
                 max_updates=max_updates,
                 min_nuisance=min_nuisance,
                 one_step_eps=one_step_eps,
+                alpha=alpha,
             )
 
     def predict(self, type: str = "risks", alpha: float = 0.05, g_comp: bool = False) -> pd.DataFrame:
