@@ -263,17 +263,8 @@ def fit_haz_superlearner(
     surv_1 = cph.predict_survival_function(inputs_copy, return_array=True)
     cum_haz_1 = cph.predict_cumulative_hazard_function(inputs_copy, return_array=True)
 
-
     inputs_copy[:, 0] = 0
     surv_0 = cph.predict_survival_function(inputs_copy, return_array=True)
     cum_haz_0 = cph.predict_cumulative_hazard_function(inputs_copy, return_array=True)
 
-    if 0 not in event_times:
-        # make sure that the survival and cumulative hazard functions start at time 0
-        surv_1 = np.column_stack((np.ones(surv_1.shape[0]), surv_1))
-        surv_0 = np.column_stack((np.ones(surv_0.shape[0]), surv_0))
-        cum_haz_1 = np.column_stack((np.ones(cum_haz_1.shape[0]), cum_haz_1))
-        cum_haz_0 = np.column_stack((np.ones(cum_haz_0.shape[0]), cum_haz_0))
-
     return surv_1, surv_0, cum_haz_1, cum_haz_0, cph
-
