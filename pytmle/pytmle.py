@@ -1,7 +1,12 @@
 from .estimates import InitialEstimates
 from .get_initial_estimates import fit_default_propensity_model, fit_default_risk_model, fit_default_censoring_model
 from .tmle_update import tmle_update
-from .predict_ate import get_counterfactual_risks, ate_ratio, ate_diff
+from .predict_ate import (
+    get_counterfactual_risks,
+    ate_ratio,
+    ate_diff,
+)
+from .evalues_benchmark import EvaluesBenchmark
 from .plotting import plot_risks, plot_ate, plot_nuisance_weights
 
 import os
@@ -9,24 +14,28 @@ import logging
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict, Tuple
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 
 class PyTMLE:
-    def __init__(self, 
-                 data: pd.DataFrame,
-                 col_event_times: str = "event_time",
-                 col_event_indicator: str = "event_indicator",
-                 col_group: str = "group",
-                 target_times: Optional[List[float]] = None,
-                 target_events: List[int] = [1],
-                 g_comp: bool = True,
-                 key_1: int = 1,
-                 key_0: int = 0,
-                 initial_estimates: Optional[Dict[int, InitialEstimates]] = None,
-                 verbose: bool = True):
+
+    def __init__(
+        self,
+        data: pd.DataFrame,
+        col_event_times: str = "event_time",
+        col_event_indicator: str = "event_indicator",
+        col_group: str = "group",
+        target_times: Optional[List[float]] = None,
+        target_events: List[int] = [1],
+        g_comp: bool = True,
+        evalues_benchmark: bool = False,
+        key_1: int = 1,
+        key_0: int = 0,
+        initial_estimates: Optional[Dict[int, InitialEstimates]] = None,
+        verbose: bool = True,
+    ):
         """
         Initialize the PyTMLE model.
 
@@ -46,6 +55,8 @@ class PyTMLE:
             List of event types to target. Default is [1].
         g_comp : bool, optional
             Whether to use g-computation for initial estimates. Default is True.
+        evalues_benchmark : bool, optional
+            Whether to compute E-values for measured confounders. Default is False.
         key_1 : int, optional
             The key representing the treatment group. Default is 1.
         key_0 : int, optional
@@ -66,7 +77,12 @@ class PyTMLE:
                            initial_estimates)
         self._initial_estimates = initial_estimates
         self._updated_estimates = None
-        self._X = data.drop(columns=[col_event_times, col_event_indicator, col_group]).to_numpy()
+        self._X = data.drop(
+            columns=[col_event_times, col_event_indicator, col_group]
+        ).to_numpy()
+        self._feature_names = data.drop(
+            columns=[col_event_times, col_event_indicator, col_group]
+        ).columns
         self._event_times = data[col_event_times].to_numpy()
         self._event_indicator = data[col_event_indicator].to_numpy()
         self._group = data[col_group].to_numpy()
@@ -85,6 +101,14 @@ class PyTMLE:
         self.step_num = 0
         self.norm_pn_eics = []
         self.models = {}
+        if evalues_benchmark:
+            if initial_estimates is not None:
+                logger.warning(
+                     "E-values benchmark for measured covariates may be incorrect if pre-computed initial estimates are provided because the measured covariates need to be dropped during model fitting."
+                )
+            self.evalues_benchmark = EvaluesBenchmark(self)
+        else:
+            self.evalues_benchmark = EvaluesBenchmark()
 
     def _check_inputs(
                 self, 
@@ -226,6 +250,7 @@ class PyTMLE:
         min_nuisance: Optional[float] = None,
         one_step_eps: float = 0.1,
         save_models: bool = False,
+        alpha: float = 0.05,
     ):
         """
         Fit the TMLE model.
@@ -243,12 +268,25 @@ class PyTMLE:
             Initial epsilon for the one-step update. Default is 0.1.
         save_models : bool, optional
             Whether to save the models used for the initial estimates. Default is False.
+        alpha : float, optional 
+            The alpha level for confidence intervals (relevant only for E-value benchmark). Default is 0.05.
         """
         if self._fitted:
             raise RuntimeError("Model has already been fitted. fit() can only be called once.")
         self._get_initial_estimates(cv_folds, save_models)
         self._update_estimates(max_updates, min_nuisance, one_step_eps)
         self._fitted = True
+
+        # running E-value benchmark
+        if self.evalues_benchmark is not None:
+            self.evalues_benchmark.benchmark(
+                full_model=self,
+                cv_folds=cv_folds,
+                max_updates=max_updates,
+                min_nuisance=min_nuisance,
+                one_step_eps=one_step_eps,
+                alpha=alpha,
+            )
 
     def predict(self, type: str = "risks", alpha: float = 0.05, g_comp: bool = False) -> pd.DataFrame:
         """
@@ -345,51 +383,115 @@ class PyTMLE:
 
     def plot_nuisance_weights(
         self,
+        time: Optional[float] = None,
         save_dir_path: Optional[str] = None,
         color_1: Optional[str] = None,
         color_0: Optional[str] = None,
-        only_baseline: bool = False,
+        plot_size: Tuple[float, float] = (6.4, 4.8),
     ):
         """
         Plot the nuisance weights.
 
         Parameters
         ----------
+        time : Optional[float], optional
+            Time at which to plot the nuisance weights. If None, all target times are plotted. Default is None.
         save_dir_path : Optional[str], optional
             Path to directory to save the plots. Default is None.
         color_1 : Optional[str], optional
             Color for the treatment group. Default is None.
         color_0 : Optional[str], optional
             Color for the control group. Default is None.
-        only_baseline : bool, optional
-            Whether to only plot the nuisance weights at t=0. Default is False.
         """
         if self._updated_estimates is None: 
             raise RuntimeError("Updated estimates must have been initialized before calling plot_nuisance_weights().")
         if save_dir_path is not None and not os.path.exists(save_dir_path):
             os.makedirs(save_dir_path)
-        for _, _, time in plot_nuisance_weights(self._updated_estimates[self.key_1], 
-                                                color_1=color_1, 
-                                                color_0=color_0):
+        if time is not None:
+            assert (
+                time in self.target_times or time == 0
+            ), f"Time has to be 0 or one of the target times {self.target_times}."
+            target_times = [time]
+        else:
+            target_times = [0.0] + list(self.target_times)
+        for _, _, time in plot_nuisance_weights(
+            target_times=target_times,
+            times=self._updated_estimates[self.key_1].times,  # type: ignore
+            min_nuisance=self._updated_estimates[self.key_1].min_nuisance,  # type: ignore
+            nuisance_weights=self._updated_estimates[
+                self.key_1
+            ].nuisance_weight,  # type: ignore
+            g_star_obs=self._updated_estimates[self.key_1].g_star_obs,
+            plot_size=plot_size,
+            color_1=color_1,
+            color_0=color_0,
+        ):
             if save_dir_path is not None:
-                plt.savefig(f'{save_dir_path}/nuisance_weights_t{time}.png')
+                plt.savefig(f'{save_dir_path}/nuisance_weights_t{time}.png', bbox_inches="tight")
             else:
                 plt.show()
             plt.close()
-            if only_baseline:
-                break
 
     def plot_norm_pn_eic(
         self,
         save_dir_path: Optional[str] = None,
+        plot_size: Tuple[float, float] = (6.4, 4.8),
     ):
-        _, ax = plt.subplots(figsize=(10, 6))
+        _, ax = plt.subplots(figsize=plot_size)
         ax.plot(self.norm_pn_eics, marker="o")
         ax.set_title("Norm of the Pointwise Nuisance Function", fontsize=16)
         ax.set_xlabel("Iteration")
         ax.set_ylabel("||PnEIC||")
         if save_dir_path is not None:
-            plt.savefig(save_dir_path)
+            plt.savefig(save_dir_path, bbox_inches="tight")
         else:
             plt.show()
         plt.close()
+
+    def plot_evalue_contours(
+        self,
+        save_dir_path: Optional[str] = None,
+        time: Optional[float] = None,
+        event: Optional[int] = None,
+        type: str = "ratio",
+        num_points_per_contour: int = 200,
+        color_point_estimate: str = "blue",
+        color_ci: str = "red",
+        color_benchmarking: str = "green",
+        plot_size: Tuple[float, float] = (6.4, 4.8),
+    ):
+        if not self._fitted:
+            raise RuntimeError(
+                "Model has to be fitted before calling plot_evalue_contours()."
+            )
+        if save_dir_path is not None and not os.path.exists(save_dir_path):
+            os.makedirs(save_dir_path)
+        if time is not None:
+            assert (
+                time in self.target_times
+            ), f"Time has to be one of the target times {self.target_times}."
+            target_times = [time]
+        else:
+            target_times = self.target_times
+        if event is not None:
+            assert (
+                event in self.target_events
+            ), f"Event has to be one of the target events {self.target_events}."
+            target_events = [event]
+        else:
+            target_events = self.target_events
+        for _, _, time, event in self.evalues_benchmark.plot(
+            target_times=target_times,
+            target_events=target_events,
+            ate_type=type,
+            num_points_per_contour=num_points_per_contour,
+            color_point_estimate=color_point_estimate,
+            color_ci=color_ci,
+            color_benchmarking=color_benchmarking,
+            plot_size=plot_size,
+        ):
+            if save_dir_path is not None:
+                plt.savefig(f"{save_dir_path}/evalue_contours_{event}_t{time}.png", bbox_inches="tight")
+            else:
+                plt.show()
+            plt.close()

@@ -3,9 +3,7 @@ from matplotlib.lines import Line2D
 import seaborn as sns
 import numpy as np
 import pandas as pd
-from typing import Optional, Generator
-
-from pytmle.estimates import UpdatedEstimates
+from typing import Optional, Generator, Tuple, List
 
 def initialize_subplots(target_events: np.ndarray) -> tuple:
     num_events = len(target_events)
@@ -101,13 +99,13 @@ def plot_ate(tmle_est: pd.DataFrame,
         fig.suptitle("Average Treatment Effect (ATE) Estimates Over Time", fontsize=16)
     else:
         raise ValueError(f"type must be either 'ratio' or 'diff', got {type}.")
-    
+
     all_ci_lower = []
     all_ci_upper = []
 
     for i, event in enumerate(target_events):
         ax = axes[i]
-        
+
         time = tmle_est[tmle_est["Event"] == event]["Time"].values
         ate_estimates = tmle_est[tmle_est["Event"] == event]["Pt Est"].values
         ci_lower = tmle_est[tmle_est["Event"] == event]["CI_lower"].values
@@ -117,7 +115,7 @@ def plot_ate(tmle_est: pd.DataFrame,
 
         yerr = [ate_estimates - ci_lower,
                 ci_upper - ate_estimates]
-        
+
         ax.errorbar(time, 
             ate_estimates, 
             yerr=yerr, 
@@ -125,7 +123,7 @@ def plot_ate(tmle_est: pd.DataFrame,
             color="black",
             fmt="o", 
             linestyle="--")
-        
+
         if g_comp_est is not None:
             assert all(time == g_comp_est[g_comp_est["Event"] == event]["Time"].values), "Target times do not match for TMLE and g-computation."
             ate_estimates_g_comp = g_comp_est[g_comp_est["Event"] == event]["Pt Est"].values
@@ -168,29 +166,32 @@ def plot_ate(tmle_est: pd.DataFrame,
     return fig, axes
 
 
-def plot_nuisance_weights(updated_estimates: UpdatedEstimates, 
-                          color_1: Optional[str] = None,
-                          color_0: Optional[str] = None) -> Generator[tuple, None, None]:
-    target_times = [0]
-    if updated_estimates.target_times is not None:
-        target_times += list(updated_estimates.target_times)
+def plot_nuisance_weights(
+    target_times: List[float],
+    times: np.ndarray,
+    min_nuisance: float,
+    nuisance_weights: np.ndarray,
+    g_star_obs: np.ndarray,
+    plot_size: Tuple[float, float],
+    color_1: Optional[str] = None,
+    color_0: Optional[str] = None,
+) -> Generator[tuple, None, None]:
 
-    times_idx = [0] + [i for i, time in enumerate(updated_estimates.times) if time in target_times]
+    times_idx = [i for i, time in enumerate(times) if time in target_times]
     for t_idx, t in zip(times_idx, target_times):
-        nuisance_weight = 1 / updated_estimates.nuisance_weight[:, t_idx]
-        g_star_obs = updated_estimates.g_star_obs
+        nuisance_weight = 1 / nuisance_weights[:, t_idx]
 
         # Filter the data
         weights_g0 = nuisance_weight[g_star_obs == 0]
         weights_g1 = nuisance_weight[g_star_obs == 1]
 
         # Plot the density functions
-        fig, ax = plt.subplots(figsize=(10, 6))
+        fig, ax = plt.subplots(figsize=plot_size)
         sns.kdeplot(weights_g0, label="0", fill=True, color=color_0)
         sns.kdeplot(weights_g1, label="1", fill=True, color=color_1)
 
         # vertical line for min_nuisance
-        plt.axvline(x=updated_estimates.min_nuisance, color='gray', linestyle='--', label='Min. Nuisance')
+        plt.axvline(x=min_nuisance, color="gray", linestyle="--", label="Min. Nuisance")
 
         plt.suptitle(f'Nuisance weights at time t={t} for positivity check', fontsize=15)
         if t==0:
