@@ -147,19 +147,27 @@ class UpdatedEstimates(InitialEstimates):
             insert_indices = np.searchsorted(all_times, insert_times)
 
             self.times = all_times
-            self.hazards = np.insert(self.hazards, insert_indices, 0, axis=1)
-            self.event_free_survival_function = np.insert(
-               self.event_free_survival_function,
-               insert_indices,
-               self.event_free_survival_function[:, insert_indices - 1],
-               axis=1,
-            )
-            self.censoring_survival_function = np.insert(
-                self.censoring_survival_function,
-                insert_indices,
-                self.censoring_survival_function[:, insert_indices - 1],
-                axis=1,
-            )
+
+            hazards_new = self.hazards
+            event_free_survival_function_new = self.event_free_survival_function
+            censoring_survival_function_new = self.censoring_survival_function
+            for idx in insert_indices:
+                hazards_new = np.insert(hazards_new, idx, 0, axis=1)
+                event_free_survival_function_new = np.insert(
+                    event_free_survival_function_new,
+                    idx,
+                    event_free_survival_function_new[:, idx - 1],
+                    axis=1,
+                )
+                censoring_survival_function_new = np.insert(
+                    censoring_survival_function_new,
+                    idx,
+                    censoring_survival_function_new[:, idx - 1],
+                    axis=1,
+                )
+            self.hazards = hazards_new
+            self.event_free_survival_function = event_free_survival_function_new
+            self.censoring_survival_function = censoring_survival_function_new
 
         # Find the index of the maximum target time
         max_target_time = max(self.target_times)  # type: ignore
