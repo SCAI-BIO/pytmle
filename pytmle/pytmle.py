@@ -8,6 +8,7 @@ from .predict_ate import (
 )
 from .evalues_benchmark import EvaluesBenchmark
 from .plotting import plot_risks, plot_ate, plot_nuisance_weights
+from .bootstrap import bootstrap_tmle_loop
 
 import os
 import logging
@@ -96,6 +97,7 @@ class PyTMLE:
         self.key_1 = key_1
         self.key_0 = key_0
         self.verbose = verbose
+        self._bootstrap_results = None
         self._fitted = False
         self.has_converged = False
         self.step_num = 0
@@ -219,12 +221,36 @@ class PyTMLE:
             logger.info("Using given censoring survival estimates")
 
     def _update_estimates(
-        self, max_updates: int, min_nuisance: Optional[float], one_step_eps: float
+        self,
+        max_updates: int,
+        min_nuisance: Optional[float],
+        one_step_eps: float,
+        bootstrap: bool = False,
+        n_bootstrap: int = 100,
+        n_jobs: int = 4,
+        stratified_bootstrap: bool = False,
     ):
         assert self._initial_estimates is not None, "Initial estimates have to be available before calling _update_estimates()."
         for k in self._initial_estimates:
             assert self._initial_estimates[k] is not None, "Initial estimates have to be available before calling _update_estimates()."
+
         logger.info("Starting TMLE update loop...")
+        if bootstrap:
+            self._bootstrap_results = bootstrap_tmle_loop(
+                self._initial_estimates,
+                event_times=self._event_times,
+                event_indicator=self._event_indicator,
+                target_times=self.target_times,
+                target_events=self.target_events,
+                n_bootstrap=n_bootstrap,
+                n_jobs=n_jobs,
+                stratify_by_event=stratified_bootstrap,
+                max_updates=max_updates,
+                min_nuisance=min_nuisance,
+                one_step_eps=one_step_eps,
+                key_1=self.key_1,
+                key_0=self.key_0,
+            )
         (
             self._updated_estimates,
             self.norm_pn_eics,
@@ -251,6 +277,10 @@ class PyTMLE:
         one_step_eps: float = 0.1,
         save_models: bool = False,
         alpha: float = 0.05,
+        bootstrap: bool = False,
+        n_bootstrap: int = 100,
+        n_jobs: int = 4,
+        stratified_bootstrap: bool = False,
     ):
         """
         Fit the TMLE model.
@@ -268,13 +298,29 @@ class PyTMLE:
             Initial epsilon for the one-step update. Default is 0.1.
         save_models : bool, optional
             Whether to save the models used for the initial estimates. Default is False.
-        alpha : float, optional 
+        alpha : float, optional
             The alpha level for confidence intervals (relevant only for E-value benchmark). Default is 0.05.
+        bootstrap : bool, optional
+            Whether to perform bootstrapping. Default is False.
+        n_bootstrap : int, optional
+            Number of bootstrap samples. Default is 100.
+        n_jobs : int, optional
+            Number of parallel jobs for bootstrapping. Default is 4.
+        stratified_bootstrap : bool, optional
+            Whether to perform stratified bootstrapping. Default is False.
         """
         if self._fitted:
             raise RuntimeError("Model has already been fitted. fit() can only be called once.")
         self._get_initial_estimates(cv_folds, save_models)
-        self._update_estimates(max_updates, min_nuisance, one_step_eps)
+        self._update_estimates(
+            max_updates,
+            min_nuisance,
+            one_step_eps,
+            bootstrap,
+            n_bootstrap,
+            n_jobs,
+            stratified_bootstrap,
+        )
         self._fitted = True
 
         # running E-value benchmark
@@ -286,6 +332,10 @@ class PyTMLE:
                 min_nuisance=min_nuisance,
                 one_step_eps=one_step_eps,
                 alpha=alpha,
+                bootstrap=bootstrap,
+                n_bootstrap=n_bootstrap,
+                n_jobs=n_jobs,
+                stratified_bootstrap=stratified_bootstrap,
             )
 
     def predict(self, type: str = "risks", alpha: float = 0.05, g_comp: bool = False) -> pd.DataFrame:
@@ -304,35 +354,47 @@ class PyTMLE:
         if not self._fitted or self._updated_estimates is None:
             raise RuntimeError("Model has to be fitted before calling predict().")
         if type == "risks":
-            return get_counterfactual_risks(self._updated_estimates, 
-                                            g_comp=g_comp,
-                                            alpha=alpha,
-                                            key_1=self.key_1,
-                                            key_0=self.key_0)
+            return get_counterfactual_risks(
+                self._updated_estimates,
+                g_comp=g_comp,
+                alpha=alpha,
+                key_1=self.key_1,
+                key_0=self.key_0,
+                bootstrap_results=self._bootstrap_results,
+            )
         elif type == "ratio":
-            return ate_ratio(self._updated_estimates, 
-                            g_comp=g_comp,
-                            alpha=alpha,
-                            key_1=self.key_1,
-                            key_0=self.key_0)
+            return ate_ratio(
+                self._updated_estimates,
+                g_comp=g_comp,
+                alpha=alpha,
+                key_1=self.key_1,
+                key_0=self.key_0,
+                bootstrap_results=self._bootstrap_results,
+            )
         elif type == "diff":
-            return ate_diff(self._updated_estimates, 
-                            g_comp=g_comp,
-                            alpha=alpha,
-                            key_1=self.key_1,
-                            key_0=self.key_0)
+            return ate_diff(
+                self._updated_estimates,
+                g_comp=g_comp,
+                alpha=alpha,
+                key_1=self.key_1,
+                key_0=self.key_0,
+                bootstrap_results=self._bootstrap_results,
+            )
         else: 
             raise ValueError(
                 f"Only 'risks', 'ratio' and 'diff' are supported as type, got {type}."
             )
 
-    def plot(self, 
-             save_path: Optional[str] = None,
-             type: str = "risks", 
-             alpha: float = 0.05, 
-             g_comp: bool = False,
-             color_1: Optional[str] = None, 
-             color_0: Optional[str] = None) -> tuple:
+    def plot(
+        self,
+        save_path: Optional[str] = None,
+        type: str = "risks",
+        alpha: float = 0.05,
+        g_comp: bool = False,
+        color_1: Optional[str] = None,
+        color_0: Optional[str] = None,
+        use_bootstrap: bool = False,
+    ) -> tuple:
         """
         Plot the counterfactual risks or average treatment effect.
 
@@ -350,7 +412,9 @@ class PyTMLE:
             Color for the treatment group. Default is None.
         color_0 : Optional[str], optional
             Color for the control group. Default is None.
-        
+        use_bootstrap : bool, optional
+            Whether to use the bootstrapped bounds instead of the theoretical bounds. Default is False.
+
         Returns
         -------
         fig : matplotlib.figure.Figure
@@ -358,21 +422,31 @@ class PyTMLE:
         axes : np.ndarray
             The axes objects.
         """
+        if use_bootstrap and self._bootstrap_results is None:
+            raise RuntimeError(
+                "Bootstrapping has to be performed before plotting with bootstrap estimates."
+            )
         if type == "risks":
             pred = self.predict(type=type, alpha=alpha)
             if g_comp:
                 pred_g_comp = self.predict(type=type, alpha=alpha, g_comp=True)
-            fig, axes = plot_risks(pred,  
-                    pred_g_comp if g_comp else None,
-                    color_1=color_1, 
-                    color_0=color_0)
+            fig, axes = plot_risks(
+                pred,
+                pred_g_comp if g_comp else None,
+                color_1=color_1,
+                color_0=color_0,
+                use_bootstrap=use_bootstrap,
+            )
         elif type == "ratio" or type == "diff":
             pred = self.predict(type=type, alpha=alpha)
             if g_comp:
                 pred_g_comp = self.predict(type=type, alpha=alpha, g_comp=True)
-            fig, axes= plot_ate(pred,
-                                pred_g_comp if g_comp else None,
-                                type=type)
+            fig, axes = plot_ate(
+                pred,
+                pred_g_comp if g_comp else None,
+                type=type,
+                use_bootstrap=use_bootstrap,
+            )
         else: 
             raise ValueError(f"Only 'risks', 'ratio' and 'diff' are supported as type, got {type}.")
 
@@ -454,6 +528,7 @@ class PyTMLE:
         time: Optional[float] = None,
         event: Optional[int] = None,
         type: str = "ratio",
+        use_bootstrap: bool = False,
         num_points_per_contour: int = 200,
         color_point_estimate: str = "blue",
         color_ci: str = "red",
@@ -489,6 +564,7 @@ class PyTMLE:
             color_ci=color_ci,
             color_benchmarking=color_benchmarking,
             plot_size=plot_size,
+            use_bootstrap=use_bootstrap,
         ):
             if save_dir_path is not None:
                 plt.savefig(f"{save_dir_path}/evalue_contours_{event}_t{time}.png", bbox_inches="tight")

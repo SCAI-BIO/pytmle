@@ -8,11 +8,15 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-def get_counterfactual_risks(updated_estimates: Dict[int, UpdatedEstimates], 
-                         g_comp: bool = False,
-                         alpha: float = 0.05,
-                         key_1: int = 1,
-                         key_0: int = 0) -> pd.DataFrame:
+
+def get_counterfactual_risks(
+    updated_estimates: Dict[int, UpdatedEstimates],
+    g_comp: bool = False,
+    alpha: float = 0.05,
+    key_1: int = 1,
+    key_0: int = 0,
+    bootstrap_results: Optional[pd.DataFrame] = None,
+) -> pd.DataFrame:
     """
     Get counterfactual risks for the treatment and control groups.
     """    
@@ -36,6 +40,16 @@ def get_counterfactual_risks(updated_estimates: Dict[int, UpdatedEstimates],
     else:
         pred_risk["CI_lower"] = np.nan
         pred_risk["CI_upper"] = np.nan
+
+    if bootstrap_results is not None:
+        pred_risk = pred_risk.merge(
+            bootstrap_results[bootstrap_results["type"] == "risks"].drop(
+                columns=["type"]
+            ),
+            on=["Event", "Time", "Group"],
+            suffixes=("", "_bootstrap"),
+        )
+
     return pred_risk
 
 
@@ -86,11 +100,12 @@ def get_evalues_rr(
 
 
 def ate_ratio(
-    updated_estimates: Dict[int, UpdatedEstimates], 
+    updated_estimates: Dict[int, UpdatedEstimates],
     g_comp: bool = False,
     alpha: float = 0.05,
     key_1: int = 1,
-    key_0: int = 0
+    key_0: int = 0,
+    bootstrap_results: Optional[pd.DataFrame] = None,
 ) -> pd.DataFrame:
     """
     Calculate the Average Treatment Effect (ATE) based on ratio from the updated estimates.
@@ -101,6 +116,7 @@ def ate_ratio(
         alpha (float): Significance level for confidence intervals.
         key_1 (int): Key for the treatment group.
         key_0 (int): Key for the control group.
+        bootstrap_results (pd.DataFrame): DataFrame with bootstrap results.
 
     Returns:
         pandas.DataFrame: DataFrame with ATE ratio estimates.
@@ -154,6 +170,22 @@ def ate_ratio(
         pred_ratios["E_value CI"] = np.nan
         pred_ratios["E_value CI limit"] = np.nan
 
+    if bootstrap_results is not None:
+        pred_ratios = pred_ratios.merge(
+            bootstrap_results[bootstrap_results["type"] == "ratio"].drop(
+                columns=["Group", "type"]
+            ),
+            on=["Event", "Time"],
+            suffixes=("", "_bootstrap"),
+        )
+        _, evalues_ci_bs, evalues_ci_limit_bs = get_evalues_rr(
+            pred_ratios["Pt Est"],
+            pred_ratios["CI_lower_bootstrap"],
+            pred_ratios["CI_upper_bootstrap"],
+        )
+        pred_ratios["E_value CI (bootstrap)"] = evalues_ci_bs
+        pred_ratios["E_value CI limit (bootstrap)"] = evalues_ci_limit_bs
+
     return pred_ratios
 
 
@@ -181,11 +213,12 @@ def get_evalues_rd(
 
 
 def ate_diff(
-    updated_estimates: Dict[int, UpdatedEstimates], 
+    updated_estimates: Dict[int, UpdatedEstimates],
     g_comp: bool = False,
     alpha: float = 0.05,
     key_1: int = 1,
-    key_0: int = 0
+    key_0: int = 0,
+    bootstrap_results: Optional[pd.DataFrame] = None,
 ) -> pd.DataFrame:
     """
     Calculate the Average Treatment Effect (ATE) based on difference from the updated estimates.
@@ -196,6 +229,7 @@ def ate_diff(
         alpha (float): Significance level for confidence intervals.
         key_1 (int): Key for the treatment group.
         key_0 (int): Key for the control group.
+        bootstrap_results (pd.DataFrame): DataFrame with bootstrap results.
 
     Returns:
         pandas.DataFrame: DataFrame with ATE difference estimates.
@@ -244,5 +278,18 @@ def ate_diff(
         pred_diffs["E_value"] = evalues
         pred_diffs["E_value CI"] = np.nan
         pred_diffs["E_value CI limit"] = np.nan
+
+    if bootstrap_results is not None:
+        pred_diffs = pred_diffs.merge(
+            bootstrap_results[bootstrap_results["type"] == "diff"].drop(
+                columns=["Group", "type"]
+            ),
+            on=["Event", "Time"],
+            suffixes=("", "_bootstrap"),
+        )
+        # E-values are not available for bootstrapped CIs because
+        # they cannot be transformed according to the approximation given above
+        pred_diffs["E-value CI (bootstrap)"] = np.nan
+        pred_diffs["E-value CI limit (bootstrap)"] = np.nan
 
     return pred_diffs

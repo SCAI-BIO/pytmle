@@ -28,6 +28,12 @@ class EvaluesBenchmark:
         self.rr_full = full_model.predict("ratio", alpha=alpha)
         self.rd_full = full_model.predict("diff", alpha=alpha)
         self.rr_full["Limiting bound"] = np.where(self.rr_full["E_value CI limit"]=="lower", self.rr_full["CI_lower"], self.rr_full["CI_upper"])
+        if full_model._bootstrap_results is not None:
+            self.rr_full["Limiting bound (bootstrap)"] = np.where(
+                self.rr_full["E_value CI limit (bootstrap)"] == "lower",
+                self.rr_full["CI_lower_bootstrap"],
+                self.rr_full["CI_upper_bootstrap"],
+            )
         # transformed RR and CIs proposed by VanderWeele and Ding (2017)
         self.rd_full["RR"] = np.exp(0.91 * self.rd_full["Pt Est"])
         self.rd_full["Limiting bound"]  = np.where(self.rd_full["E_value CI limit"]=="lower", 
@@ -54,6 +60,20 @@ class EvaluesBenchmark:
                 self._observed_covariate_evalue(ci, ci_new) 
                 for ci, ci_new in zip( self.rr_full["Limiting bound"], ci_rr)
             ]
+            if full_model._bootstrap_results is not None:
+                ci_rr_bs = np.where(
+                    self.rr_full["E_value CI limit (bootstrap)"] == "lower",
+                    rr["CI_lower_bootstrap"],
+                    rr["CI_upper_bootstrap"],
+                )
+                rr["E_value measured (bootstrap)"] = [
+                    self._observed_covariate_evalue(ci, ci_new)
+                    for ci, ci_new in zip(
+                        self.rr_full["Limiting bound (bootstrap)"], ci_rr_bs
+                    )
+                ]
+            else:
+                rr["E_value measured (bootstrap)"] = np.nan
             # get diff estimates for the benchmark model
             rd = tmle.predict("diff")
             rd["type"] = "diff"
@@ -65,8 +85,32 @@ class EvaluesBenchmark:
                 self._observed_covariate_evalue(ci, ci_new) 
                 for ci, ci_new in zip(self.rd_full["Limiting bound"], ci_rd)
             ]
-            evalues_df_list.append(rr[["benchmark_feature", "type", "Time", "Event", "E_value measured"]])
-            evalues_df_list.append(rd[["benchmark_feature", "type", "Time", "Event", "E_value measured"]])
+            # E-values related to bootstrapped CIs are not available for the RD
+            rd["E_value measured (bootstrap)"] = np.nan
+            evalues_df_list.append(
+                rr[
+                    [
+                        "benchmark_feature",
+                        "type",
+                        "Time",
+                        "Event",
+                        "E_value measured",
+                        "E_value measured (bootstrap)",
+                    ]
+                ]
+            )
+            evalues_df_list.append(
+                rd[
+                    [
+                        "benchmark_feature",
+                        "type",
+                        "Time",
+                        "Event",
+                        "E_value measured",
+                        "E_value measured (bootstrap)",
+                    ]
+                ]
+            )
         self.benchmarking_results = pd.concat(evalues_df_list, ignore_index=True)
 
     def _observed_covariate_evalue(self, ci, new_ci):
@@ -91,40 +135,59 @@ class EvaluesBenchmark:
             ratio = ci / new_ci
 
         return ratio + (ratio * (ratio - 1))**0.5
-    
-    def plot(self, 
-            target_times: List[float], 
-            target_events: List[int], 
-            ate_type: str,
-            num_points_per_contour: int,
-            color_point_estimate: str, 
-            color_ci: str, 
-            color_benchmarking: str,
-            plot_size: Tuple[float, float]) -> Generator[tuple, None, None]:
+
+    def plot(
+        self,
+        target_times: List[float],
+        target_events: List[int],
+        ate_type: str,
+        num_points_per_contour: int,
+        color_point_estimate: str,
+        color_ci: str,
+        color_benchmarking: str,
+        plot_size: Tuple[float, float],
+        use_bootstrap: bool = False,
+    ) -> Generator[tuple, None, None]:
+        if ate_type == "diff" and use_bootstrap:
+            raise ValueError(
+                "E-value contours for the difference in risk are not available with bootstrapped confidence intervals."
+            )
         for ev in target_events:
             for t in target_times:
-                yield self._plot(num_points_per_contour=num_points_per_contour, 
-                        color_point_estimate=color_point_estimate, 
-                        color_ci=color_ci, 
-                        color_benchmarking=color_benchmarking, 
-                        plot_size=plot_size, 
-                        target_event=ev,
-                        target_time=t,
-                        ate_type=ate_type) + (t, ev)
+                yield self._plot(
+                    num_points_per_contour=num_points_per_contour,
+                    color_point_estimate=color_point_estimate,
+                    color_ci=color_ci,
+                    color_benchmarking=color_benchmarking,
+                    plot_size=plot_size,
+                    target_event=ev,
+                    target_time=t,
+                    ate_type=ate_type,
+                    use_bootstrap=use_bootstrap,
+                ) + (t, ev)
 
-
-    def _plot(self, 
-              target_time: float,
-              target_event: int,
-              ate_type: str,
-              num_points_per_contour: int, 
-              color_point_estimate: str, 
-              color_ci: str, 
-              color_benchmarking: str, 
-              plot_size: tuple, 
-              **kwargs):
+    def _plot(
+        self,
+        target_time: float,
+        target_event: int,
+        ate_type: str,
+        num_points_per_contour: int,
+        color_point_estimate: str,
+        color_ci: str,
+        color_benchmarking: str,
+        plot_size: tuple,
+        use_bootstrap: bool,
+        **kwargs,
+    ):
         fig, ax = plt.subplots(1, 1, figsize=plot_size)
 
+        evalue_ci_key = "E_value CI (bootstrap)" if use_bootstrap else "E_value CI"
+        limiting_bound_key = (
+            "Limiting bound (bootstrap)" if use_bootstrap else "Limiting bound"
+        )
+        evalue_measured_key = (
+            "E_value measured (bootstrap)" if use_bootstrap else "E_value measured"
+        )
         if ate_type == "ratio":
             full_df = self.rr_full[(self.rr_full["Time"] == target_time) & 
                                  (self.rr_full["Event"] == target_event)]
@@ -133,7 +196,9 @@ class EvaluesBenchmark:
                 benchmark_df = self.benchmarking_results[(self.benchmarking_results["Time"] == target_time) &
                                                     (self.benchmarking_results["Event"] == target_event) &
                                                     (self.benchmarking_results["type"] == "ratio")]
-                benchmark_df = benchmark_df.sort_values(by="E_value measured", ascending=False).fillna(0)
+                benchmark_df = benchmark_df.sort_values(
+                    by=evalue_measured_key, ascending=False
+                )
         elif ate_type == "diff":
             full_df = self.rd_full[(self.rd_full["Time"] == target_time) & 
                                  (self.rd_full["Event"] == target_event)]
@@ -143,14 +208,36 @@ class EvaluesBenchmark:
                 benchmark_df = self.benchmarking_results[(self.benchmarking_results["Time"] == target_time) &
                                                     (self.benchmarking_results["Event"] == target_event) &
                                                     (self.benchmarking_results["type"] == "diff")]
-                benchmark_df = benchmark_df.sort_values(by="E_value measured", ascending=False).fillna(0)  
+                benchmark_df = benchmark_df.sort_values(
+                    by=evalue_measured_key, ascending=False
+                )
         else:
-            raise ValueError(f"ate_type must be either 'ratio' or 'diff', got {ate_type}.")      
+            raise ValueError(
+                f"ate_type must be either 'ratio' or 'diff', got {ate_type}."
+            )
+        if (
+            not evalue_ci_key in full_df.columns
+            or not limiting_bound_key in full_df.columns
+        ):
+            raise ValueError(
+                "Requested E-value confidence intervals are not available."
+            )
+        is_na = benchmark_df[evalue_measured_key].isna()
+        if all(is_na):
+            logger.warning(
+                "No observed E-values available for the benchmarking features."
+            )
+        elif sum(is_na) > 0:
+            logger.warning(
+                f"Observed E-values are not available for {sum(is_na)} out of {len(is_na)} features."
+            )
+        benchmark_df = benchmark_df.fillna(0)
+
         eval_est = full_df["E_value"].item()
         if rr < 1:
             rr = 1 / rr
 
-        xy_limit = eval_est * 2
+        xy_limit = max(eval_est, np.max(benchmark_df[evalue_measured_key])) * 2
 
         self._plot_contour(ax, 
                            rr, 
@@ -159,13 +246,13 @@ class EvaluesBenchmark:
                            color_point_estimate, 
                            xy_limit)
 
-        eval_ci = full_df["E_value CI"].item()
+        eval_ci = full_df[evalue_ci_key].item()
         if eval_ci is None:
             logger.info("Plotting contour for point estimate only. Confidence interval is not available.")
         elif eval_ci==1:
             logger.info("Plotting contour for point estimate only. Confidence interval is already tipped.")
         else:
-            rr_ci = full_df["Limiting bound"].item()
+            rr_ci = full_df[limiting_bound_key].item()
             if rr_ci < 1:
                 rr_ci = 1 / rr_ci
 
@@ -179,15 +266,17 @@ class EvaluesBenchmark:
                 point_est=False,
             )
 
-        if self.benchmarking_results is not None and any(benchmark_df["E_value measured"] > 1):
+        if self.benchmarking_results is not None and any(
+            benchmark_df[evalue_measured_key] > 1
+        ):
             ax.scatter(
-                benchmark_df["E_value measured"],
-                benchmark_df["E_value measured"],
+                benchmark_df[evalue_measured_key],
+                benchmark_df[evalue_measured_key],
                 label="Observed covariate E-values",
                 color=color_benchmarking,
             )
             example_var = benchmark_df.iloc[0]
-            obs_evalue = example_var["E_value measured"]
+            obs_evalue = example_var[evalue_measured_key]
             ax.text(obs_evalue, obs_evalue, example_var["benchmark_feature"], fontsize=8)
 
         ax.set(xlabel="$RR_{treatment-confounder}$", ylabel="$RR_{confounder-outcome}$")
