@@ -283,7 +283,7 @@ def ate_diff(
         z_stat = pred_diffs["Pt Est"] / pred_diffs["SE"]
         pred_diffs["p_value"] = 2 * (1 - norm.cdf(np.abs(z_stat)))
         evalues, evalues_ci, evalues_ci_limit = get_evalues_rd(
-            pred_diffs["Pt Est"], pred_diffs["SE"], alpha=alpha
+            rd=pred_diffs["Pt Est"], se=pred_diffs["SE"], alpha=alpha
         )
         pred_diffs["E_value"] = evalues
         pred_diffs["E_value CI"] = evalues_ci
@@ -297,9 +297,9 @@ def ate_diff(
                 suffixes=("", "_bootstrap"),
             )
             _, evalues_ci_bs, evalues_ci_limit_bs = get_evalues_rd(
-                pred_diffs["Pt Est"],
-                pred_diffs["CI_lower_bootstrap"],
-                pred_diffs["CI_upper_bootstrap"],
+                rd=pred_diffs["Pt Est"],
+                ci_lower=pred_diffs["CI_lower_bootstrap"],
+                ci_upper=pred_diffs["CI_upper_bootstrap"],
             )
             pred_diffs["E_value CI (bootstrap)"] = evalues_ci_bs
             pred_diffs["E_value CI limit (bootstrap)"] = evalues_ci_limit_bs
