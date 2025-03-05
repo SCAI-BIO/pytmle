@@ -51,7 +51,7 @@ def single_boot(initial_estimates,
     else:
         sample_indices = standard_bootstrap(event_indicator)
 
-    # Resample initial estimates, event times and event indicator; 
+    # Resample initial estimates, event times and event indicator;
     boot_initial_estimates = {}
     for k in initial_estimates.keys():
         boot_initial_estimates[k] = initial_estimates[k][sample_indices]
@@ -102,6 +102,38 @@ def bootstrap_tmle_loop(
 ) -> Optional[pd.DataFrame]:
     """
     Perform parallel bootstrapping and call tmle_update on each sample.
+
+    Parameters
+    ----------
+    initial_estimates: Dict[int, InitialEstimates]
+        Initial estimates for each group.
+    event_times: np.ndarray
+        Array of event times.
+    event_indicator: np.ndarray
+        Array of event indicators.
+    target_times: List[float]
+        List of target times.
+    target_events: List[int]
+        List of target events.
+    n_bootstrap: int
+        Number of bootstrap samples.
+    n_jobs: int
+        Number of parallel jobs for bootstrapping.
+    alpha: float
+        Significance level for confidence intervals.
+    key_1: int
+        Key for group 1.
+    key_0: int
+        Key for group 0.
+    stratify_by_event: bool
+        Stratify bootstrapping by event indicator.
+    kwargs
+        Additional arguments to pass to tmle_update.
+
+    Returns
+    -------
+    Optional[pd.DataFrame]
+        DataFrame with bootstrapped confidence intervals.
     """
     with ProcessPoolExecutor(max_workers=n_jobs if n_jobs > 0 else None) as executor:
         futures = [executor.submit(single_boot, 

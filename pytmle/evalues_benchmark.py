@@ -28,17 +28,31 @@ class EvaluesBenchmark:
         self.rr_full = full_model.predict("ratio", alpha=alpha)
         self.rd_full = full_model.predict("diff", alpha=alpha)
         self.rr_full["Limiting bound"] = np.where(self.rr_full["E_value CI limit"]=="lower", self.rr_full["CI_lower"], self.rr_full["CI_upper"])
+        # transformed RR and CIs proposed by VanderWeele and Ding (2017)
+        self.rd_full["RR"] = np.exp(0.91 * self.rd_full["Pt Est"])
+        self.rd_full["Limiting bound"] = np.where(
+            self.rd_full["E_value CI limit"] == "lower",
+            np.exp(
+                0.91 * self.rd_full["Pt Est"]
+                - 0.91 * norm.ppf(1 - alpha / 2) * self.rd_full["SE"]
+            ),
+            np.exp(
+                0.91 * self.rd_full["Pt Est"]
+                + 0.91 * norm.ppf(1 - alpha / 2) * self.rd_full["SE"]
+            ),
+        )
         if full_model._bootstrap_results is not None:
             self.rr_full["Limiting bound (bootstrap)"] = np.where(
                 self.rr_full["E_value CI limit (bootstrap)"] == "lower",
                 self.rr_full["CI_lower_bootstrap"],
                 self.rr_full["CI_upper_bootstrap"],
             )
-        # transformed RR and CIs proposed by VanderWeele and Ding (2017)
-        self.rd_full["RR"] = np.exp(0.91 * self.rd_full["Pt Est"])
-        self.rd_full["Limiting bound"]  = np.where(self.rd_full["E_value CI limit"]=="lower", 
-                              np.exp(0.91 * self.rd_full["Pt Est"] - 0.91 * norm.ppf(1 - alpha / 2) * self.rd_full["SE"]), 
-                              np.exp(0.91 * self.rd_full["Pt Est"] + 0.91 * norm.ppf(1 - alpha / 2) * self.rd_full["SE"]))
+            self.rd_full["Limiting bound (bootstrap)"] = np.where(
+                self.rd_full["E_value CI limit (bootstrap)"] == "lower",
+                # transformed bootstrapped quantile-based CIs
+                np.exp(0.91 * self.rd_full["CI_lower_bootstrap"]),
+                np.exp(0.91 * self.rd_full["CI_upper_bootstrap"]),
+            )
         if self.skip_benchmark:
             return
         if max_updates > 100:
@@ -60,6 +74,20 @@ class EvaluesBenchmark:
                 self._observed_covariate_evalue(ci, ci_new) 
                 for ci, ci_new in zip( self.rr_full["Limiting bound"], ci_rr)
             ]
+            # get diff estimates for the benchmark model
+            rd = tmle.predict("diff")
+            rd["type"] = "diff"
+            rd["benchmark_feature"] = f
+            ci_rd = np.where(
+                self.rd_full["E_value CI limit"] == "lower",
+                # transformation for SE-based CIs
+                np.exp(0.91 * rd["Pt Est"] - 0.91 * norm.ppf(1 - alpha / 2) * rd["SE"]),
+                np.exp(0.91 * rd["Pt Est"] + 0.91 * norm.ppf(1 - alpha / 2) * rd["SE"]),
+            )
+            rd["E_value measured"] = [
+                self._observed_covariate_evalue(ci, ci_new)
+                for ci, ci_new in zip(self.rd_full["Limiting bound"], ci_rd)
+            ]
             if full_model._bootstrap_results is not None:
                 ci_rr_bs = np.where(
                     self.rr_full["E_value CI limit (bootstrap)"] == "lower",
@@ -72,21 +100,21 @@ class EvaluesBenchmark:
                         self.rr_full["Limiting bound (bootstrap)"], ci_rr_bs
                     )
                 ]
+                ci_rd_bs = np.where(
+                    self.rd_full["E_value CI limit (bootstrap)"] == "lower",
+                    # transformation for bootstrapped quantile-based CIs
+                    np.exp(0.91 * rd["CI_lower_bootstrap"]),
+                    np.exp(0.91 * rd["CI_upper_bootstrap"]),
+                )
+                rd["E_value measured (bootstrap)"] = [
+                    self._observed_covariate_evalue(ci, ci_new)
+                    for ci, ci_new in zip(
+                        self.rd_full["Limiting bound (bootstrap)"], ci_rd_bs
+                    )
+                ]
             else:
                 rr["E_value measured (bootstrap)"] = np.nan
-            # get diff estimates for the benchmark model
-            rd = tmle.predict("diff")
-            rd["type"] = "diff"
-            rd["benchmark_feature"] = f
-            ci_rd = np.where(self.rd_full["E_value CI limit"]=="lower", 
-                            np.exp(0.91 * rd["Pt Est"] - 0.91 * norm.ppf(1 - alpha / 2) * rd["SE"]), 
-                            np.exp(0.91 * rd["Pt Est"] + 0.91 * norm.ppf(1 - alpha / 2) * rd["SE"]))
-            rd["E_value measured"] = [
-                self._observed_covariate_evalue(ci, ci_new) 
-                for ci, ci_new in zip(self.rd_full["Limiting bound"], ci_rd)
-            ]
-            # E-values related to bootstrapped CIs are not available for the RD
-            rd["E_value measured (bootstrap)"] = np.nan
+                rd["E_value measured (bootstrap)"] = np.nan
             evalues_df_list.append(
                 rr[
                     [
@@ -148,10 +176,6 @@ class EvaluesBenchmark:
         plot_size: Tuple[float, float],
         use_bootstrap: bool = False,
     ) -> Generator[tuple, None, None]:
-        if ate_type == "diff" and use_bootstrap:
-            raise ValueError(
-                "E-value contours for the difference in risk are not available with bootstrapped confidence intervals."
-            )
         for ev in target_events:
             for t in target_times:
                 yield self._plot(
@@ -222,22 +246,25 @@ class EvaluesBenchmark:
             raise ValueError(
                 "Requested E-value confidence intervals are not available."
             )
-        is_na = benchmark_df[evalue_measured_key].isna()
-        if all(is_na):
-            logger.warning(
-                "No observed E-values available for the benchmarking features."
-            )
-        elif sum(is_na) > 0:
-            logger.warning(
-                f"Observed E-values are not available for {sum(is_na)} out of {len(is_na)} features."
-            )
-        benchmark_df = benchmark_df.fillna(0)
 
         eval_est = full_df["E_value"].item()
         if rr < 1:
             rr = 1 / rr
 
-        xy_limit = max(eval_est, np.max(benchmark_df[evalue_measured_key])) * 2
+        if self.benchmarking_results is not None:
+            is_na = benchmark_df[evalue_measured_key].isna()
+            if all(is_na):
+                logger.warning(
+                    "No observed E-values available for the benchmarking features."
+                )
+            elif sum(is_na) > 0:
+                logger.warning(
+                    f"Observed E-values are not available for {sum(is_na)} out of {len(is_na)} features."
+                )
+            benchmark_df = benchmark_df.fillna(0)
+            xy_limit = max(eval_est, np.max(benchmark_df[evalue_measured_key])) * 2
+        else:
+            xy_limit = eval_est * 2
 
         self._plot_contour(ax, 
                            rr, 
