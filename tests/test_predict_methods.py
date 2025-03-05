@@ -61,7 +61,20 @@ def test_ate_ratio(mock_updated_estimates):
         result = ate_ratio(mock_updated_estimates, g_comp=g_comp, key_1=1, key_0=0)
         results[estimator] = result
         assert isinstance(result, pd.DataFrame)
-        assert set(result.columns) == {"Time", "Event", "Pt Est", "SE", "CI_lower", "CI_upper", "p_value", "E_value", "E_value CI", "E_value CI limit"}
+        assert set(result.columns) == {
+            "Time",
+            "Event",
+            "Pt Est",
+            "SE",
+            "CI_lower",
+            "CI_upper",
+            "p_value",
+            "E_value",
+            "E_value CI",
+            "E_value CI limit",
+            "E_value CI (bootstrap)",
+            "E_value CI limit (bootstrap)",
+        }
         assert result["SE"].isna().all() == g_comp # should be all NA for g_comp=True
         assert result["CI_lower"].isna().all() == g_comp # should be all NA for g_comp=True
         assert result["CI_upper"].isna().all() == g_comp # should be all NA for g_comp=True
@@ -86,7 +99,20 @@ def test_ate_diff(mock_updated_estimates):
         result = ate_diff(mock_updated_estimates, g_comp=g_comp, key_1=1, key_0=0)
         results[estimator] = result
         assert isinstance(result, pd.DataFrame)
-        assert set(result.columns) == {"Time", "Event", "Pt Est", "SE", "CI_lower", "CI_upper", "p_value", "E_value", "E_value CI", "E_value CI limit"}
+        assert set(result.columns) == {
+            "Time",
+            "Event",
+            "Pt Est",
+            "SE",
+            "CI_lower",
+            "CI_upper",
+            "p_value",
+            "E_value",
+            "E_value CI",
+            "E_value CI limit",
+            "E_value CI (bootstrap)",
+            "E_value CI limit (bootstrap)",
+        }
         assert result["SE"].isna().all() == g_comp # should be all NA for g_comp=True
         assert result["CI_lower"].isna().all() == g_comp # should be all NA for g_comp=True
         assert result["CI_upper"].isna().all() == g_comp # should be all NA for g_comp=True
@@ -102,4 +128,3 @@ def test_ate_diff(mock_updated_estimates):
     assert os.path.exists('/tmp/test_ate_diff_plot.png')  # Check if the plot file exists
     os.remove('/tmp/test_ate_diff_plot.png')  # Clean up the file after the test
     plt.close()  # Close the plot
-
