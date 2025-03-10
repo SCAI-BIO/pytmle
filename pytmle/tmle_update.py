@@ -157,8 +157,6 @@ def tmle_loop(
         bool: Flag indicating convergence.
         int: Number of TMLE update steps.
     """
-    if not verbose:
-        logging.disable(logging.CRITICAL)
 
     working_eps = one_step_eps
     norm_pn_eics = [norm_pn_eic]
@@ -236,7 +234,8 @@ def tmle_loop(
             continue
 
         step_num += 1
-        logger.info(f"Step {step_num}: Norm PnEIC improved to {new_norm_pn_eic}.")
+        if verbose:
+            logger.info(f"Step {step_num}: Norm PnEIC improved to {new_norm_pn_eic}.")
 
         # Update estimates
         estimates.update(new_ests)
@@ -251,12 +250,10 @@ def tmle_loop(
         )
 
         if all(new_summ_eic["check"]):
-            logging.disable(logging.NOTSET)
             logger.info(f"TMLE converged at step {step_num}.")
             return new_ests, norm_pn_eics, True, step_num
 
     # Warning for non-convergence
-    logging.disable(logging.NOTSET)
     logger.warning(
         f"Warning: TMLE has not converged by step {max_updates}. Estimates may not have the desired asymptotic properties."
     )

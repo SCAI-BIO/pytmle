@@ -38,10 +38,12 @@ def test_fit(mock_main_class_inputs, precomputed_initial_est_mask):
                  target_events=[1, 2],
                  initial_estimates=initial_estimates)
 
-    tmle.fit(max_updates=100)
+    tmle.fit(max_updates=100, bootstrap=True, n_bootstrap=4)
     assert tmle._fitted
     # TMLE should converge easily on the simple mock data
     assert tmle.has_converged, "TMLE update did not converge."
+    # check if the bootstrap results are stored
+    assert tmle._bootstrap_results is not None
 
     # tmle.plot(
     #     "/home/jguski/COMMUTE/tmle/plot.png",

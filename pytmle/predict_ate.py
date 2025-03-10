@@ -8,11 +8,15 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-def get_counterfactual_risks(updated_estimates: Dict[int, UpdatedEstimates], 
-                         g_comp: bool = False,
-                         alpha: float = 0.05,
-                         key_1: int = 1,
-                         key_0: int = 0) -> pd.DataFrame:
+
+def get_counterfactual_risks(
+    updated_estimates: Dict[int, UpdatedEstimates],
+    g_comp: bool = False,
+    alpha: float = 0.05,
+    key_1: int = 1,
+    key_0: int = 0,
+    bootstrap_results: Optional[pd.DataFrame] = None,
+) -> pd.DataFrame:
     """
     Get counterfactual risks for the treatment and control groups.
     """    
@@ -36,6 +40,16 @@ def get_counterfactual_risks(updated_estimates: Dict[int, UpdatedEstimates],
     else:
         pred_risk["CI_lower"] = np.nan
         pred_risk["CI_upper"] = np.nan
+
+    if bootstrap_results is not None:
+        pred_risk = pred_risk.merge(
+            bootstrap_results[bootstrap_results["type"] == "risks"].drop(
+                columns=["type"]
+            ),
+            on=["Event", "Time", "Group"],
+            suffixes=("", "_bootstrap"),
+        )
+
     return pred_risk
 
 
@@ -86,11 +100,12 @@ def get_evalues_rr(
 
 
 def ate_ratio(
-    updated_estimates: Dict[int, UpdatedEstimates], 
+    updated_estimates: Dict[int, UpdatedEstimates],
     g_comp: bool = False,
     alpha: float = 0.05,
     key_1: int = 1,
-    key_0: int = 0
+    key_0: int = 0,
+    bootstrap_results: Optional[pd.DataFrame] = None,
 ) -> pd.DataFrame:
     """
     Calculate the Average Treatment Effect (ATE) based on ratio from the updated estimates.
@@ -101,6 +116,7 @@ def ate_ratio(
         alpha (float): Significance level for confidence intervals.
         key_1 (int): Key for the treatment group.
         key_0 (int): Key for the control group.
+        bootstrap_results (pd.DataFrame): DataFrame with bootstrap results.
 
     Returns:
         pandas.DataFrame: DataFrame with ATE ratio estimates.
@@ -144,6 +160,24 @@ def ate_ratio(
         pred_ratios["E_value"] = evalues
         pred_ratios["E_value CI"] = evalues_ci
         pred_ratios["E_value CI limit"] = evalues_ci_limit
+        if bootstrap_results is not None:
+            pred_ratios = pred_ratios.merge(
+                bootstrap_results[bootstrap_results["type"] == "ratio"].drop(
+                    columns=["Group", "type"]
+                ),
+                on=["Event", "Time"],
+                suffixes=("", "_bootstrap"),
+            )
+            _, evalues_ci_bs, evalues_ci_limit_bs = get_evalues_rr(
+                pred_ratios["Pt Est"],
+                pred_ratios["CI_lower_bootstrap"],
+                pred_ratios["CI_upper_bootstrap"],
+            )
+            pred_ratios["E_value CI (bootstrap)"] = evalues_ci_bs
+            pred_ratios["E_value CI limit (bootstrap)"] = evalues_ci_limit_bs
+        else:
+            pred_ratios["E_value CI (bootstrap)"] = np.nan
+            pred_ratios["E_value CI limit (bootstrap)"] = np.nan
     else:
         pred_ratios["SE"] = np.nan
         pred_ratios["CI_lower"] = np.nan
@@ -153,12 +187,18 @@ def ate_ratio(
         pred_ratios["E_value"] = evalues
         pred_ratios["E_value CI"] = np.nan
         pred_ratios["E_value CI limit"] = np.nan
+        pred_ratios["E_value CI (bootstrap)"] = np.nan
+        pred_ratios["E_value CI limit (bootstrap)"] = np.nan
 
     return pred_ratios
 
 
 def get_evalues_rd(
-    rd: pd.Series, se: Optional[pd.Series] = None, alpha: float = 0.05
+    rd: pd.Series,
+    ci_lower: Optional[pd.Series] = None,
+    ci_upper: Optional[pd.Series] = None,
+    se: Optional[pd.Series] = None,
+    alpha: float = 0.05,
 ) -> Tuple[pd.Series, Optional[pd.Series], Optional[pd.Series]]:
     """
     Compute the E-values for the Risk Difference (RD) estimate.
@@ -166,26 +206,38 @@ def get_evalues_rd(
 
     Args:
         rd (pd.Series): Point estimate for the Risk Difference.
+        ci_lower (pd.Series): Lower bound of the confidence interval.
+        ci_upper (pd.Series): Upper bound of the confidence interval.
         se (pd.Series): Standard error for the Risk Difference.
+        alpha (float): Significance level for confidence intervals.
 
     Returns:
         Tuple[pd.Series, Optional[pd.Series]]: E-values for the RD estimate, the confidence interval, and the CI limit closer to the null.
     """
     #
     rr = pd.Series(np.exp(0.91 * rd))
-    if se is not None:
+    if ci_lower is not None and ci_upper is not None:
+        # case 1: Directly transform (quantile-based) CI bounds
+        ci_lower = pd.Series(np.exp(0.91 * ci_lower))
+        ci_upper = pd.Series(np.exp(0.91 * ci_upper))
+    elif se is not None:
+        # case 2: Transform SE-based CI bounds
         ci_lower = pd.Series(np.exp(0.91 * rd - 0.91 * norm.ppf(1 - alpha / 2) * se))
         ci_upper = pd.Series(np.exp(0.91 * rd + 0.91 * norm.ppf(1 - alpha / 2) * se))
-        return get_evalues_rr(rr, ci_lower, ci_upper)
-    return get_evalues_rr(rr)
+    else:
+        # default case: only point estimate
+        ci_lower = None
+        ci_upper = None
+    return get_evalues_rr(rr, ci_lower, ci_upper)
 
 
 def ate_diff(
-    updated_estimates: Dict[int, UpdatedEstimates], 
+    updated_estimates: Dict[int, UpdatedEstimates],
     g_comp: bool = False,
     alpha: float = 0.05,
     key_1: int = 1,
-    key_0: int = 0
+    key_0: int = 0,
+    bootstrap_results: Optional[pd.DataFrame] = None,
 ) -> pd.DataFrame:
     """
     Calculate the Average Treatment Effect (ATE) based on difference from the updated estimates.
@@ -196,6 +248,7 @@ def ate_diff(
         alpha (float): Significance level for confidence intervals.
         key_1 (int): Key for the treatment group.
         key_0 (int): Key for the control group.
+        bootstrap_results (pd.DataFrame): DataFrame with bootstrap results.
 
     Returns:
         pandas.DataFrame: DataFrame with ATE difference estimates.
@@ -230,11 +283,29 @@ def ate_diff(
         z_stat = pred_diffs["Pt Est"] / pred_diffs["SE"]
         pred_diffs["p_value"] = 2 * (1 - norm.cdf(np.abs(z_stat)))
         evalues, evalues_ci, evalues_ci_limit = get_evalues_rd(
-            pred_diffs["Pt Est"], pred_diffs["SE"], alpha=alpha
+            rd=pred_diffs["Pt Est"], se=pred_diffs["SE"], alpha=alpha
         )
         pred_diffs["E_value"] = evalues
         pred_diffs["E_value CI"] = evalues_ci
         pred_diffs["E_value CI limit"] = evalues_ci_limit
+        if bootstrap_results is not None:
+            pred_diffs = pred_diffs.merge(
+                bootstrap_results[bootstrap_results["type"] == "diff"].drop(
+                    columns=["Group", "type"]
+                ),
+                on=["Event", "Time"],
+                suffixes=("", "_bootstrap"),
+            )
+            _, evalues_ci_bs, evalues_ci_limit_bs = get_evalues_rd(
+                rd=pred_diffs["Pt Est"],
+                ci_lower=pred_diffs["CI_lower_bootstrap"],
+                ci_upper=pred_diffs["CI_upper_bootstrap"],
+            )
+            pred_diffs["E_value CI (bootstrap)"] = evalues_ci_bs
+            pred_diffs["E_value CI limit (bootstrap)"] = evalues_ci_limit_bs
+        else:
+            pred_diffs["E_value CI (bootstrap)"] = np.nan
+            pred_diffs["E_value CI limit (bootstrap)"] = np.nan
     else:
         pred_diffs["SE"] = np.nan
         pred_diffs["CI_lower"] = np.nan
@@ -244,5 +315,7 @@ def ate_diff(
         pred_diffs["E_value"] = evalues
         pred_diffs["E_value CI"] = np.nan
         pred_diffs["E_value CI limit"] = np.nan
+        pred_diffs["E_value CI (bootstrap)"] = np.nan
+        pred_diffs["E_value CI limit (bootstrap)"] = np.nan
 
     return pred_diffs

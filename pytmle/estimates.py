@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 from dataclasses import dataclass, field
-from typing import Optional, List
+from typing import Optional, List, Union
 
 from pytmle.g_computation import get_g_comp
 
@@ -42,6 +42,36 @@ class InitialEstimates:
                 f"The second dimension of all initial estimates must be in line with the given times, got {len(self.times)} times and element of shape {new_element.shape}."
             )
 
+    def __getitem__(self, key: Union[np.ndarray, List[int]]) -> "InitialEstimates":
+        """
+        Enable subsetting of an InitialEstimates object (needed for bootstrapping)
+
+        Args:
+            key (Union[np.ndarray, List[int]]): The indices of the subset.
+
+        Returns:
+            InitialEstimates: A new InitialEstimates object containing the subset.
+        """
+        return InitialEstimates(
+            times=self.times,
+            g_star_obs=self.g_star_obs[key],
+            propensity_scores=(
+                self.propensity_scores[key]
+                if self.propensity_scores is not None
+                else None
+            ),
+            hazards=self.hazards[key] if self.hazards is not None else None,
+            event_free_survival_function=(
+                self.event_free_survival_function[key]
+                if self.event_free_survival_function is not None
+                else None
+            ),
+            censoring_survival_function=(
+                self.censoring_survival_function[key]
+                if self.censoring_survival_function is not None
+                else None
+            ),
+        )
 
     def __len__(self):
         return self._length

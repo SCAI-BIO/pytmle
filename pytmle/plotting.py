@@ -21,12 +21,19 @@ def initialize_subplots(target_events: np.ndarray) -> tuple:
     return fig, axes
 
 
-def plot_risks(tmle_est: pd.DataFrame,
-               g_comp_est: Optional[pd.DataFrame] = None,
-               color_1: Optional[str] = None,
-               color_0: Optional[str] = None) -> tuple:
+def plot_risks(
+    tmle_est: pd.DataFrame,
+    g_comp_est: Optional[pd.DataFrame] = None,
+    color_1: Optional[str] = None,
+    color_0: Optional[str] = None,
+    use_bootstrap: bool = False,
+) -> tuple:
     target_events = np.unique(tmle_est["Event"])
     fig, axes = initialize_subplots(target_events)
+
+    mean_key = "mean_bootstrap" if use_bootstrap else "Pt Est"
+    ci_lower_key = "CI_lower_bootstrap" if use_bootstrap else "CI_lower"
+    ci_upper_key = "CI_upper_bootstrap" if use_bootstrap else "CI_upper"
 
     fig.suptitle("Risk Estimates Over Time", fontsize=16)
 
@@ -40,32 +47,35 @@ def plot_risks(tmle_est: pd.DataFrame,
         used_colors = []
         for group, color in zip(groups, [color_0, color_1]):
             time = tmle_est[(tmle_est["Event"] == event) & (tmle_est["Group"] == group)]["Time"].values
-            ate_estimates = tmle_est[(tmle_est["Event"] == event) & (tmle_est["Group"] == group)]["Pt Est"].values
-            ci_lower = tmle_est[(tmle_est["Event"] == event) & (tmle_est["Group"] == group)]["CI_lower"].values
-            ci_upper = tmle_est[(tmle_est["Event"] == event) & (tmle_est["Group"] == group)]["CI_upper"].values
+            pt_est = tmle_est[
+                (tmle_est["Event"] == event) & (tmle_est["Group"] == group)
+            ]["Pt Est"].values
+            mean = tmle_est[
+                (tmle_est["Event"] == event) & (tmle_est["Group"] == group)
+            ][mean_key].values
+            ci_lower = tmle_est[
+                (tmle_est["Event"] == event) & (tmle_est["Group"] == group)
+            ][ci_lower_key].values
+            ci_upper = tmle_est[
+                (tmle_est["Event"] == event) & (tmle_est["Group"] == group)
+            ][ci_upper_key].values
             all_ci_upper.append(ci_upper)
 
-            yerr = [ate_estimates - ci_lower,
-                ci_upper - ate_estimates]
-            
-            container = ax.errorbar(time, 
-                ate_estimates, 
-                yerr=yerr, 
-                capsize=13, 
-                color=color,
-                fmt="o", 
-                linestyle="--")
-            used_colors.append(container.lines[0].get_color())
-            
+            yerr = [mean - ci_lower, ci_upper - mean]
+
+            container = ax.plot(time, pt_est, linestyle="--", color=color, marker="o")
+            used_colors.append(container[0].get_color())
+            ax.errorbar(
+                time, mean, yerr=yerr, capsize=13, color=used_colors[-1], linestyle=""
+            )
+
             if g_comp_est is not None:
                 assert all(time == g_comp_est[(g_comp_est["Event"] == event)  & (tmle_est["Group"] == group)]["Time"].values), "Target times do not match for TMLE and g-computation."
                 ate_estimates_g_comp = g_comp_est[(g_comp_est["Event"] == event)  & (tmle_est["Group"] == group)]["Pt Est"].values
-                ax.scatter(time, 
-                    ate_estimates_g_comp, 
-                    color=color,
-                    marker="x",
-                    s=100)
-                
+                ax.scatter(
+                    time, ate_estimates_g_comp, color=used_colors[-1], marker="x", s=100
+                )
+
         ax.set_title(f"Event {event}")
         ax.set_xlabel("Time")
         ax.set_xlim(0, None)   
@@ -81,7 +91,7 @@ def plot_risks(tmle_est: pd.DataFrame,
     l2 = fig.legend(l2_handle, groups, loc='upper right', title='Group', bbox_to_anchor=(1, 0.9))
     if g_comp_est is not None:    
         fig.add_artist(l1)
-        
+
     # unify y-axis limits across all subplots
     for ax in axes:
         ax.set_ylim(0, max(np.concat(all_ci_upper)) * 1.1)
@@ -89,11 +99,18 @@ def plot_risks(tmle_est: pd.DataFrame,
     return fig, axes
 
 
-def plot_ate(tmle_est: pd.DataFrame,
-            g_comp_est: Optional[pd.DataFrame] = None,
-            type="ratio") -> tuple:
+def plot_ate(
+    tmle_est: pd.DataFrame,
+    g_comp_est: Optional[pd.DataFrame] = None,
+    type="ratio",
+    use_bootstrap: bool = False,
+) -> tuple:
     target_events = tmle_est["Event"].unique()
     fig, axes = initialize_subplots(target_events)
+
+    mean_key = "mean_bootstrap" if use_bootstrap else "Pt Est"
+    ci_lower_key = "CI_lower_bootstrap" if use_bootstrap else "CI_lower"
+    ci_upper_key = "CI_upper_bootstrap" if use_bootstrap else "CI_upper"
 
     if type == "ratio" or type == "diff":
         fig.suptitle("Average Treatment Effect (ATE) Estimates Over Time", fontsize=16)
@@ -107,22 +124,17 @@ def plot_ate(tmle_est: pd.DataFrame,
         ax = axes[i]
 
         time = tmle_est[tmle_est["Event"] == event]["Time"].values
-        ate_estimates = tmle_est[tmle_est["Event"] == event]["Pt Est"].values
-        ci_lower = tmle_est[tmle_est["Event"] == event]["CI_lower"].values
-        ci_upper = tmle_est[tmle_est["Event"] == event]["CI_upper"].values
+        mean = tmle_est[tmle_est["Event"] == event][mean_key].values
+        pt_est = tmle_est[tmle_est["Event"] == event]["Pt Est"].values
+        ci_lower = tmle_est[tmle_est["Event"] == event][ci_lower_key].values
+        ci_upper = tmle_est[tmle_est["Event"] == event][ci_upper_key].values
         all_ci_lower.append(ci_lower)
         all_ci_upper.append(ci_upper)
 
-        yerr = [ate_estimates - ci_lower,
-                ci_upper - ate_estimates]
+        yerr = [mean - ci_lower, ci_upper - mean]
 
-        ax.errorbar(time, 
-            ate_estimates, 
-            yerr=yerr, 
-            capsize=13, 
-            color="black",
-            fmt="o", 
-            linestyle="--")
+        ax.plot(time, pt_est, linestyle="--", color="black", marker="o")
+        ax.errorbar(time, mean, yerr=yerr, capsize=13, color="black", linestyle="")
 
         if g_comp_est is not None:
             assert all(time == g_comp_est[g_comp_est["Event"] == event]["Time"].values), "Target times do not match for TMLE and g-computation."
