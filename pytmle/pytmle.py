@@ -34,8 +34,9 @@ class PyTMLE:
         evalues_benchmark: bool = False,
         key_1: int = 1,
         key_0: int = 0,
+        model_type: str = "coxph",
         initial_estimates: Optional[Dict[int, InitialEstimates]] = None,
-        verbose: bool = True,
+        verbose: bool = True
     ):
         """
         Initialize the PyTMLE model.
@@ -66,6 +67,8 @@ class PyTMLE:
             Dict with pre-computed initial estimates for the two potential outcomes. Default is None.
         verbose : bool, optional
             Whether to print verbose output. Default is True.
+        model_type : str, optional
+            The type of model to use for the initial estimates. Default is "coxph".
         """
         self._check_inputs(data, 
                            col_event_times, 
@@ -75,6 +78,7 @@ class PyTMLE:
                            target_events, 
                            key_1, 
                            key_0, 
+                           model_type,
                            initial_estimates)
         self._initial_estimates = initial_estimates
         self._updated_estimates = None
@@ -102,6 +106,7 @@ class PyTMLE:
         self.has_converged = False
         self.step_num = 0
         self.norm_pn_eics = []
+        self.model_type = model_type
         self.models = {}
         if evalues_benchmark:
             if initial_estimates is not None:
@@ -122,6 +127,7 @@ class PyTMLE:
                 target_events: List[int],
                 key_1: int,
                 key_0: int,
+                model_type: str,
                 initial_estimates: Optional[Dict[int, InitialEstimates]]):
         if col_event_times not in data.columns:
             raise ValueError(f"Column {col_event_times} not found in the given data.")
@@ -155,6 +161,8 @@ class PyTMLE:
             raise ValueError(
                 "target_events must be consecutive integers starting from 1."
             )
+        if not model_type in ["coxph", "deephit"]:
+            raise ValueError("Only 'coxph' and 'deephit' are supported as model types.")
 
     def _get_initial_estimates(self, cv_folds: int, save_models: bool):
         if self._initial_estimates is None:
@@ -194,6 +202,7 @@ class PyTMLE:
                 event_indicator=self._event_indicator,
                 target_events=self.target_events,
                 cv_folds=cv_folds,
+                model_type=self.model_type,
                 return_model=save_models,
             )
             self.models.update(model_dict)
@@ -212,6 +221,7 @@ class PyTMLE:
                 event_times=self._event_times,
                 event_indicator=self._event_indicator,
                 cv_folds=cv_folds,
+                model_type=self.model_type,
                 return_model=save_models,
             )
             self.models.update(model_dict)
