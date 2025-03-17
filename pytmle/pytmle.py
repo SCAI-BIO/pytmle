@@ -1,5 +1,9 @@
 from .estimates import InitialEstimates
-from .get_initial_estimates import fit_default_propensity_model, fit_default_risk_model, fit_default_censoring_model
+from .get_initial_estimates import (
+    fit_default_propensity_model,
+    fit_default_risk_model,
+    fit_default_censoring_model,
+)
 from .tmle_update import tmle_update
 from .predict_ate import (
     get_counterfactual_risks,
@@ -164,7 +168,16 @@ class PyTMLE:
         if not model_type in ["coxph", "deephit"]:
             raise ValueError("Only 'coxph' and 'deephit' are supported as model types.")
 
-    def _get_initial_estimates(self, cv_folds: int, save_models: bool):
+    def _get_initial_estimates(
+        self,
+        cv_folds: int,
+        use_cox_superlearner: bool,
+        model,
+        labtrans,
+        n_epochs: int,
+        batch_size: int,
+        save_models: bool,
+    ):
         if self._initial_estimates is None:
             self._initial_estimates = {self.key_1:
                                        InitialEstimates(g_star_obs = self._group,
@@ -195,17 +208,27 @@ class PyTMLE:
             self._initial_estimates[self.key_1].event_free_survival_function is None or 
             self._initial_estimates[self.key_0].event_free_survival_function is None):
             logger.info("Estimating hazards and event-free survival...")
-            hazards_1, hazards_0, surv_1, surv_0, model_dict = fit_default_risk_model(
-                X=self._X,
-                trt=self._group,
-                event_times=self._event_times,
-                event_indicator=self._event_indicator,
-                target_events=self.target_events,
-                cv_folds=cv_folds,
-                model_type=self.model_type,
-                return_model=save_models,
+            hazards_1, hazards_0, surv_1, surv_0, model_dict, labtrans = (
+                fit_default_risk_model(
+                    X=self._X,
+                    trt=self._group,
+                    event_times=self._event_times,
+                    event_indicator=self._event_indicator,
+                    target_events=self.target_events,
+                    cv_folds=cv_folds,
+                    return_model=save_models,
+                    model=model,
+                    labtrans=labtrans,
+                    use_cox_superlearner=use_cox_superlearner,
+                    n_epochs=n_epochs,
+                    batch_size=batch_size,
+                )
             )
             self.models.update(model_dict)
+            # update times if they were tranformed in the risk model
+            if labtrans is not None:
+                self._initial_estimates[self.key_1].times = labtrans.cuts
+                self._initial_estimates[self.key_0].times = labtrans.cuts
             self._initial_estimates[self.key_1].hazards = hazards_1
             self._initial_estimates[self.key_1].event_free_survival_function = surv_1
             self._initial_estimates[self.key_0].hazards = hazards_0
@@ -215,20 +238,35 @@ class PyTMLE:
         if (self._initial_estimates[self.key_1].censoring_survival_function is None or 
             self._initial_estimates[self.key_0].censoring_survival_function is None):
             logger.info("Estimating censoring survival...")
-            cens_surv_1, cens_surv_0, model_dict = fit_default_censoring_model(
-                X=self._X,
-                trt=self._group,
-                event_times=self._event_times,
-                event_indicator=self._event_indicator,
-                cv_folds=cv_folds,
-                model_type=self.model_type,
-                return_model=save_models,
+            cens_surv_1, cens_surv_0, model_dict, labtrans = (
+                fit_default_censoring_model(
+                    X=self._X,
+                    trt=self._group,
+                    event_times=self._event_times,
+                    event_indicator=self._event_indicator,
+                    cv_folds=cv_folds,
+                    return_model=save_models,
+                    model=model,
+                    labtrans=labtrans,
+                    use_cox_superlearner=use_cox_superlearner,
+                    n_epochs=n_epochs,
+                    batch_size=batch_size,
+                )
             )
+            # update times if they were tranformed in the censoring model
+            if labtrans is not None:
+                self._initial_estimates[self.key_1].times = labtrans.cuts
+                self._initial_estimates[self.key_0].times = labtrans.cuts
             self.models.update(model_dict)
             self._initial_estimates[self.key_1].censoring_survival_function = cens_surv_1
             self._initial_estimates[self.key_0].censoring_survival_function = cens_surv_0
         else:
             logger.info("Using given censoring survival estimates")
+        # there may be changes if times were transformed
+        if labtrans is not None:
+            self._event_times, _ = labtrans.transform(
+                self._event_times, self._event_indicator
+            )
 
     def _update_estimates(
         self,
@@ -291,6 +329,11 @@ class PyTMLE:
         n_bootstrap: int = 100,
         n_jobs: int = 4,
         stratified_bootstrap: bool = False,
+        use_cox_superlearner: bool = False,
+        model=None,
+        labtrans=None,
+        n_epochs: int = 100,
+        batch_size: int = 128,
     ):
         """
         Fit the TMLE model.
@@ -318,10 +361,28 @@ class PyTMLE:
             Number of parallel jobs for bootstrapping. Default is 4.
         stratified_bootstrap : bool, optional
             Whether to perform stratified bootstrapping. Default is False.
+        use_cox_superlearner : bool, optional
+            Whether to use the Cox super learner for the risk model instead of cross fitting DeepHit (default) or a given model. Default is False.
+        model : Optional, optional
+            A model to use for the risk model. Will be ignored if use_cox_superlearner=True. Default is None.
+        labtrans : Optional, optional
+            A labtrans object to use for the risk model. Will be ignored if use_cox_superlearner=True. Default is None.
+        n_epochs : int, optional
+            Number of epochs for training the model in each cross fitting fold. Will be ignored if use_cox_superlearner=True. Default is 100.
+        batch_size : int, optional
+            Batch size for training the model in each cross fitting fold. Will be ignored if use_cox_superlearner=True. Default is 128.
         """
         if self._fitted:
             raise RuntimeError("Model has already been fitted. fit() can only be called once.")
-        self._get_initial_estimates(cv_folds, save_models)
+        self._get_initial_estimates(
+            cv_folds,
+            save_models=save_models,
+            use_cox_superlearner=use_cox_superlearner,
+            model=model,
+            labtrans=labtrans,
+            n_epochs=n_epochs,
+            batch_size=batch_size,
+        )
         self._update_estimates(
             max_updates,
             min_nuisance,
@@ -346,6 +407,11 @@ class PyTMLE:
                 n_bootstrap=n_bootstrap,
                 n_jobs=n_jobs,
                 stratified_bootstrap=stratified_bootstrap,
+                use_cox_superlearner=use_cox_superlearner,
+                model=model,
+                labtrans=labtrans,
+                n_epochs=n_epochs,
+                batch_size=batch_size,
             )
 
     def predict(self, type: str = "risks", alpha: float = 0.05, g_comp: bool = False) -> pd.DataFrame:
