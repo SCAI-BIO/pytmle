@@ -63,7 +63,8 @@ class EvaluesBenchmark:
         for i, f in enumerate(self.benchmark_features):
             logger.info(f"Computing E-Value benchmark for {f}...")
             tmle = deepcopy(self.model)
-            tmle._X = np.delete(tmle._X, i, axis=1)
+            # feature is not dropped but set to 0 to avoid incompatibility with input layers
+            tmle._X[:, i] = 0
             tmle.fit(max_updates=max_updates, **kwargs)
             # get ratio estimates for the benchmark model
             rr = tmle.predict("ratio")
