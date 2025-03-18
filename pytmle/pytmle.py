@@ -37,7 +37,6 @@ class PyTMLE:
         evalues_benchmark: bool = False,
         key_1: int = 1,
         key_0: int = 0,
-        model_type: str = "coxph",
         initial_estimates: Optional[Dict[int, InitialEstimates]] = None,
         verbose: bool = True,
     ):
@@ -68,8 +67,6 @@ class PyTMLE:
             Dict with pre-computed initial estimates for the two potential outcomes. Default is None.
         verbose : bool, optional
             Whether to print verbose output. Default is True.
-        model_type : str, optional
-            The type of model to use for the initial estimates. Default is "coxph".
         """
         self._check_inputs(
             data,
@@ -79,7 +76,6 @@ class PyTMLE:
             target_times,
             key_1,
             key_0,
-            model_type,
             initial_estimates,
         )
         self._initial_estimates = initial_estimates
@@ -110,7 +106,6 @@ class PyTMLE:
         self.has_converged = False
         self.step_num = 0
         self.norm_pn_eics = []
-        self.model_type = model_type
         self.models = {}
         if evalues_benchmark:
             if initial_estimates is not None:
@@ -130,7 +125,6 @@ class PyTMLE:
         target_times: Optional[List[float]],
         key_1: int,
         key_0: int,
-        model_type: str,
         initial_estimates: Optional[Dict[int, InitialEstimates]],
     ):
         if col_event_times not in data.columns:
@@ -139,9 +133,6 @@ class PyTMLE:
             raise ValueError(f"Column {col_event_indicator} not found in the given data.")
         if col_group not in data.columns:
             raise ValueError(f"Column {col_group} not found in the given data.")
-        target_events = np.unique(
-            data.loc[data[col_event_indicator] != 0, col_event_indicator]
-        )
         if len(data[col_group].unique()) != 2:
             raise ValueError("Only two groups are supported.")
         if initial_estimates is not None:
@@ -152,24 +143,17 @@ class PyTMLE:
                 raise ValueError(
                     "key_1 and key_0 have to be in line with the keys of the given initial estimates."
                 )
-        if not (data[col_event_indicator] == 0).any():
-            raise ValueError("Censoring has to be indicated by 0 in the event_indicator column.")
         unique_events = np.unique(data[col_event_indicator])
-        if not unique_events[-1] - unique_events[0] == len(unique_events) - 1:
-            raise ValueError(f"Event indicators have to be consecutive integers. Got {unique_events}.")
-        if not all(np.isin(target_events, data[col_event_indicator])):
-            raise ValueError("All target events have to be in the event_indicator column.")
+        if unique_events.dtype != int or not (
+            unique_events[-1] == len(unique_events) - 1
+        ):
+            raise ValueError(
+                f"Event indicators have to be consecutive integers starting from 0. Got {unique_events}."
+            )
         if target_times is not None and not max(target_times) <= max(data[col_event_times]):
             raise ValueError("All target times have to be smaller or equal to the maximum event time in the data.")
         if target_times is not None and min(target_times) < 0:
             raise ValueError("All target times have to be positive.")
-        # TODO: Either make the selection of target events more flexible or remove the option altogether (such that all non-zero events are targeted).
-        if not (np.array_equal(target_events, np.arange(1, len(target_events) + 1))):
-            raise ValueError(
-                "target_events must be consecutive integers starting from 1."
-            )
-        if not model_type in ["coxph", "deephit"]:
-            raise ValueError("Only 'coxph' and 'deephit' are supported as model types.")
 
     def _get_initial_estimates(
         self,
