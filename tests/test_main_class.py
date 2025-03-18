@@ -33,10 +33,9 @@ def test_fit(mock_main_class_inputs, precomputed_initial_est_mask):
         if not precomputed_initial_est_mask[2]:
             initial_estimates[1].censoring_survival_function = None
             initial_estimates[0].censoring_survival_function = None
-    tmle = PyTMLE(data=df,
-                 target_times=[1.0, 2.0, 3.0],
-                 target_events=[1, 2],
-                 initial_estimates=initial_estimates)
+    tmle = PyTMLE(
+        data=df, target_times=[1.0, 2.0, 3.0], initial_estimates=initial_estimates
+    )
 
     tmle.fit(max_updates=100, bootstrap=True, n_bootstrap=4, use_cox_superlearner=True)
     assert tmle._fitted
