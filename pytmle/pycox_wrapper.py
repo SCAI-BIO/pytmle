@@ -81,7 +81,7 @@ class PycoxWrapper:
                 out = [net(out) for net in self.risk_nets]
                 out = torch.stack(out, dim=1)
                 return out
-        
+
         if self.labtrans is None:
             self.labtrans = LabTransDiscreteTime(40, scheme="quantiles")
             self.labtrans.fit(self.all_times, self.all_events)
@@ -96,6 +96,17 @@ class PycoxWrapper:
         )
         return DeepHit(net, tt.optim.Adam, duration_index=self.jumps)
 
+    def _handle_all_missing_columns(self, input: np.ndarray, mode: str) -> np.ndarray:
+        """Handle all missing columns in the input data.
+        Some models cannot handle all-zero columns (e.g., Cox PH), others cannot handle changes in input dimension (neural network models).
+        This is relevant for the E-value benchmark."""
+        if mode == "remove":
+            return input[:, ~np.isnan(input).all(axis=0)]
+        elif mode == "zero":
+            input[:, np.isnan(input).all(axis=0)] = 0
+            return input
+        else:
+            raise ValueError("Invalid mode. Choose 'remove' or 'zero'.")
 
     def _update_times(
         self, predictions: np.ndarray, value: int, ffill: bool
@@ -125,7 +136,6 @@ class PycoxWrapper:
         else:
             pred_updated[mask] = value 
         return pred_updated
-        
 
     def fit(self, input, target, **kwargs):
         if self.labtrans is not None:
@@ -134,10 +144,12 @@ class PycoxWrapper:
         if "sksurv" in type(self.wrapped_model).__module__:
             # scikit-survival-based model
             target = Surv.from_arrays(target[1], target[0])
+            input = self._handle_all_missing_columns(input, "remove")
             self.wrapped_model.fit(input, target)
         else:
             # pycox-based model
             target = (target[0], target[1].astype(int))
+            input = self._handle_all_missing_columns(input, "zero")
             self.wrapped_model.fit(input, target, **kwargs)
             # Cox-like models in pycox require the baseline hazard to be computed after fitting
             if hasattr(self.wrapped_model, "compute_baseline_hazards"):
@@ -151,9 +163,11 @@ class PycoxWrapper:
             raise ValueError("Model has not been fitted")
         if hasattr(self.wrapped_model, 'predict_surv'):
             # pycox
+            input = self._handle_all_missing_columns(input, "zero")
             surv = self.wrapped_model.predict_surv(input, **kwargs)
         elif hasattr(self.wrapped_model, "predict_survival_function"):
-            #scikit-survival
+            # scikit-survival
+            input = self._handle_all_missing_columns(input, "remove")
             surv = self.wrapped_model.predict_survival_function(input, return_array=True)
         else:
             raise ValueError("Model does not have a predict_surv method")
@@ -161,7 +175,7 @@ class PycoxWrapper:
             surv = surv.T
         surv = self._update_times(surv, 1, ffill=True)
         return surv
-    
+
     def predict_haz(self, input, **kwargs) -> np.ndarray:
         """ Predict hazard function for a given input"
         """
@@ -170,6 +184,7 @@ class PycoxWrapper:
 
         if hasattr(self.wrapped_model, 'predict_cif'):
             # pycox with competing risks (e.g., DeepHit)
+            input = self._handle_all_missing_columns(input, "zero")
             surv = self.predict_surv(input)
             cif = self.wrapped_model.predict_cif(input).swapaxes(0, 2)
             surv_expanded = np.expand_dims(surv, axis=-1)
@@ -177,6 +192,7 @@ class PycoxWrapper:
             haz = np.diff(cif, prepend=0, axis=1) / surv_expanded
         elif hasattr(self.wrapped_model, 'predict_cumulative_hazards'):
             # pycox without competing risks (e.g., DeepSurv)
+            input = self._handle_all_missing_columns(input, "zero")
             cum_haz = self.wrapped_model.predict_cumulative_hazards(input).values
             if cum_haz.shape[1] == len(input):
                 cum_haz = cum_haz.T
@@ -185,6 +201,7 @@ class PycoxWrapper:
                 haz = np.expand_dims(haz, -1)
         elif hasattr(self.wrapped_model, 'predict_cumulative_hazard_function'):
             # scikit-survival
+            input = self._handle_all_missing_columns(input, "remove")
             cum_haz = self.wrapped_model.predict_cumulative_hazard_function(input, return_array=True)
             if cum_haz.shape[1] == len(input):
                 cum_haz = cum_haz.T

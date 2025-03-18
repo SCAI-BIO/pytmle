@@ -32,6 +32,8 @@ def fit_default_propensity_model(
     Tuple[np.ndarray, np.ndarray, dict]
         The estimated propensity scores, the estimated inverse propensity scores, the fitted model.
     """
+    # all-nan columns are removed (relevant for E-value benchmark)
+    X = X[:, ~np.isnan(X).all(axis=0)]
     base_learners = [
         ("rf", RandomForestClassifier()),
         ("gb", GradientBoostingClassifier()),
@@ -317,6 +319,9 @@ def fit_haz_superlearner(
         np.full((X.shape[0], 2), np.nan),
         columns=models_candidates,
     )
+
+    # all-nan columns are removed (relevant for E-value benchmark)
+    X = X[:, ~np.isnan(X).all(axis=0)]
 
     for train_indices, val_indices in skf.split(X, trt):
         X_train, X_val = X[train_indices], X[val_indices]
