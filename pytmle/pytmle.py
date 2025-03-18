@@ -33,14 +33,13 @@ class PyTMLE:
         col_event_indicator: str = "event_indicator",
         col_group: str = "group",
         target_times: Optional[List[float]] = None,
-        target_events: List[int] = [1],
         g_comp: bool = True,
         evalues_benchmark: bool = False,
         key_1: int = 1,
         key_0: int = 0,
         model_type: str = "coxph",
         initial_estimates: Optional[Dict[int, InitialEstimates]] = None,
-        verbose: bool = True
+        verbose: bool = True,
     ):
         """
         Initialize the PyTMLE model.
@@ -57,8 +56,6 @@ class PyTMLE:
             The column name in the data that contains group information. Default is "group".
         target_times : Optional[List[float]], optional
             Specific times at which to estimate the target parameter. If None, estimates for the last observed event time are used. Default is None.
-        target_events : List[int], optional
-            List of event types to target. Default is [1].
         g_comp : bool, optional
             Whether to use g-computation for initial estimates. Default is True.
         evalues_benchmark : bool, optional
@@ -74,16 +71,17 @@ class PyTMLE:
         model_type : str, optional
             The type of model to use for the initial estimates. Default is "coxph".
         """
-        self._check_inputs(data, 
-                           col_event_times, 
-                           col_event_indicator, 
-                           col_group, 
-                           target_times, 
-                           target_events, 
-                           key_1, 
-                           key_0, 
-                           model_type,
-                           initial_estimates)
+        self._check_inputs(
+            data,
+            col_event_times,
+            col_event_indicator,
+            col_group,
+            target_times,
+            key_1,
+            key_0,
+            model_type,
+            initial_estimates,
+        )
         self._initial_estimates = initial_estimates
         self._updated_estimates = None
         self._X = data.drop(
@@ -100,7 +98,9 @@ class PyTMLE:
             self.target_times = [max(self._event_times)]
         else:
             self.target_times = target_times
-        self.target_events = target_events
+        self.target_events = np.unique(
+            data.loc[data[col_event_indicator] != 0, col_event_indicator]
+        )
         self.g_comp = g_comp
         self.key_1 = key_1
         self.key_0 = key_0
@@ -122,23 +122,26 @@ class PyTMLE:
             self.evalues_benchmark = EvaluesBenchmark()
 
     def _check_inputs(
-                self, 
-                data: pd.DataFrame, 
-                col_event_times: str, 
-                col_event_indicator: str, 
-                col_group: str, 
-                target_times: Optional[List[float]],
-                target_events: List[int],
-                key_1: int,
-                key_0: int,
-                model_type: str,
-                initial_estimates: Optional[Dict[int, InitialEstimates]]):
+        self,
+        data: pd.DataFrame,
+        col_event_times: str,
+        col_event_indicator: str,
+        col_group: str,
+        target_times: Optional[List[float]],
+        key_1: int,
+        key_0: int,
+        model_type: str,
+        initial_estimates: Optional[Dict[int, InitialEstimates]],
+    ):
         if col_event_times not in data.columns:
             raise ValueError(f"Column {col_event_times} not found in the given data.")
         if col_event_indicator not in data.columns:
             raise ValueError(f"Column {col_event_indicator} not found in the given data.")
         if col_group not in data.columns:
             raise ValueError(f"Column {col_group} not found in the given data.")
+        target_events = np.unique(
+            data.loc[data[col_event_indicator] != 0, col_event_indicator]
+        )
         if len(data[col_group].unique()) != 2:
             raise ValueError("Only two groups are supported.")
         if initial_estimates is not None:
