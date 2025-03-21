@@ -118,7 +118,10 @@ class PycoxWrapper:
             pred_updated = np.full((predictions.shape[0], len(self.jumps), predictions.shape[-1]), np.nan)
 
         if self.labtrans is None:
-            fit_times_indices = np.searchsorted(np.unique(self.all_times), np.unique(self.fit_times))
+            fit_times_indices = (
+                np.searchsorted(np.unique(self.all_times), np.unique(self.fit_times))
+                - 1
+            )
         else:
             fit_times_indices = np.arange(len(self.jumps))
         pred_updated[:, fit_times_indices] = predictions
