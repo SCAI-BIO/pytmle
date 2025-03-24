@@ -1,9 +1,5 @@
 from .estimates import InitialEstimates
-from .get_initial_estimates import (
-    fit_default_propensity_model,
-    fit_default_risk_model,
-    fit_default_censoring_model,
-)
+from .get_initial_estimates import fit_propensity_super_learner, fit_state_learner
 from .tmle_update import tmle_update
 from .predict_ate import (
     get_counterfactual_risks,
@@ -158,8 +154,7 @@ class PyTMLE:
     def _get_initial_estimates(
         self,
         cv_folds: int,
-        use_cox_superlearner: bool,
-        model,
+        models,
         labtrans,
         n_epochs: int,
         batch_size: int,
@@ -178,7 +173,7 @@ class PyTMLE:
             self._initial_estimates[self.key_0].propensity_scores is None):
             logger.info("Estimating propensity scores...")
             propensity_scores_1, propensity_scores_0, model_dict = (
-                fit_default_propensity_model(
+                fit_propensity_super_learner(
                     X=self._X,
                     y=self._group,
                     cv_folds=cv_folds,
@@ -195,60 +190,67 @@ class PyTMLE:
             self._initial_estimates[self.key_1].event_free_survival_function is None or 
             self._initial_estimates[self.key_0].event_free_survival_function is None):
             logger.info("Estimating hazards and event-free survival...")
-            hazards_1, hazards_0, surv_1, surv_0, model_dict, labtrans = (
-                fit_default_risk_model(
-                    X=self._X,
-                    trt=self._group,
-                    event_times=self._event_times,
-                    event_indicator=self._event_indicator,
-                    target_events=self.target_events,
-                    cv_folds=cv_folds,
-                    return_model=save_models,
-                    model=model,
-                    labtrans=labtrans,
-                    use_cox_superlearner=use_cox_superlearner,
-                    n_epochs=n_epochs,
-                    batch_size=batch_size,
-                )
+            fit_risks_model = True
+        else:
+            logger.info("Using given hazard and event-free survival estimates")
+            fit_risks_model = False
+        if (
+            self._initial_estimates[self.key_1].censoring_survival_function is None
+            or self._initial_estimates[self.key_0].censoring_survival_function is None
+        ):
+            logger.info("Estimating censoring survival...")
+            fit_censoring_model = True
+        else:
+            logger.info("Using given censoring survival estimates")
+            fit_censoring_model = False
+        if fit_risks_model or fit_censoring_model:
+            (
+                hazards_1,
+                hazards_0,
+                surv_1,
+                surv_0,
+                cens_surv_1,
+                cens_surv_0,
+                model_dict,
+                labtrans,
+            ) = fit_state_learner(
+                X=self._X,
+                trt=self._group,
+                event_times=self._event_times,
+                event_indicator=self._event_indicator,
+                target_events=self.target_events,
+                cv_folds=cv_folds,
+                return_model=save_models,
+                models=models,
+                labtrans=labtrans,
+                n_epochs=n_epochs,
+                batch_size=batch_size,
+                fit_risks_model=fit_risks_model,
+                fit_censoring_model=fit_censoring_model,
             )
             self.models.update(model_dict)
             # update times if they were tranformed in the risk model
             if labtrans is not None:
                 self._initial_estimates[self.key_1].times = labtrans.cuts
                 self._initial_estimates[self.key_0].times = labtrans.cuts
-            self._initial_estimates[self.key_1].hazards = hazards_1
-            self._initial_estimates[self.key_1].event_free_survival_function = surv_1
-            self._initial_estimates[self.key_0].hazards = hazards_0
-            self._initial_estimates[self.key_0].event_free_survival_function = surv_0
-        else:
-            logger.info("Using given hazard and event-free survival estimates")
-        if (self._initial_estimates[self.key_1].censoring_survival_function is None or 
-            self._initial_estimates[self.key_0].censoring_survival_function is None):
-            logger.info("Estimating censoring survival...")
-            cens_surv_1, cens_surv_0, model_dict, labtrans = (
-                fit_default_censoring_model(
-                    X=self._X,
-                    trt=self._group,
-                    event_times=self._event_times,
-                    event_indicator=self._event_indicator,
-                    cv_folds=cv_folds,
-                    return_model=save_models,
-                    model=model,
-                    labtrans=labtrans,
-                    use_cox_superlearner=use_cox_superlearner,
-                    n_epochs=n_epochs,
-                    batch_size=batch_size,
+            if hazards_1 is not None and hazards_0 is not None:
+                self._initial_estimates[self.key_1].hazards = hazards_1
+                self._initial_estimates[self.key_0].hazards = hazards_0
+            if surv_1 is not None and surv_0 is not None:
+                self._initial_estimates[self.key_1].event_free_survival_function = (
+                    surv_1
                 )
-            )
-            # update times if they were tranformed in the censoring model
-            if labtrans is not None:
-                self._initial_estimates[self.key_1].times = labtrans.cuts
-                self._initial_estimates[self.key_0].times = labtrans.cuts
-            self.models.update(model_dict)
-            self._initial_estimates[self.key_1].censoring_survival_function = cens_surv_1
-            self._initial_estimates[self.key_0].censoring_survival_function = cens_surv_0
-        else:
-            logger.info("Using given censoring survival estimates")
+                self._initial_estimates[self.key_0].event_free_survival_function = (
+                    surv_0
+                )
+            if cens_surv_1 is not None and cens_surv_0 is not None:
+                self._initial_estimates[self.key_1].censoring_survival_function = (
+                    cens_surv_1
+                )
+                self._initial_estimates[self.key_0].censoring_survival_function = (
+                    cens_surv_0
+                )
+
         # there may be changes if times were transformed
         if labtrans is not None:
             self._event_times, _ = labtrans.transform(
@@ -317,7 +319,7 @@ class PyTMLE:
         n_jobs: int = 4,
         stratified_bootstrap: bool = False,
         use_cox_superlearner: bool = False,
-        model=None,
+        models=None,
         labtrans=None,
         n_epochs: int = 100,
         batch_size: int = 128,
@@ -350,22 +352,21 @@ class PyTMLE:
             Whether to perform stratified bootstrapping. Default is False.
         use_cox_superlearner : bool, optional
             Whether to use the Cox super learner for the risk model instead of cross fitting DeepHit (default) or a given model. Default is False.
-        model : Optional, optional
-            A model to use for the risk model. Will be ignored if use_cox_superlearner=True. Default is None.
+        models : Optional, optional
+            A list of models to use for the state learner. Default is None.
         labtrans : Optional, optional
-            A labtrans object to use for the risk model. Will be ignored if use_cox_superlearner=True. Default is None.
+            A list of labtrans objects to use for the risk model. Default is None.
         n_epochs : int, optional
-            Number of epochs for training the model in each cross fitting fold. Will be ignored if use_cox_superlearner=True. Default is 100.
+            Number of epochs for training the model in each cross fitting fold. Default is 100.
         batch_size : int, optional
-            Batch size for training the model in each cross fitting fold. Will be ignored if use_cox_superlearner=True. Default is 128.
+            Batch size for training the model in each cross fitting fold. Default is 128.
         """
         if self._fitted:
             raise RuntimeError("Model has already been fitted. fit() can only be called once.")
         self._get_initial_estimates(
             cv_folds,
             save_models=save_models,
-            use_cox_superlearner=use_cox_superlearner,
-            model=model,
+            models=models,
             labtrans=labtrans,
             n_epochs=n_epochs,
             batch_size=batch_size,
@@ -395,7 +396,7 @@ class PyTMLE:
                 n_jobs=n_jobs,
                 stratified_bootstrap=stratified_bootstrap,
                 use_cox_superlearner=use_cox_superlearner,
-                model=model,
+                models=models,
                 labtrans=labtrans,
                 n_epochs=n_epochs,
                 batch_size=batch_size,

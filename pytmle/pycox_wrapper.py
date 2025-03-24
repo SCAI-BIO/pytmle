@@ -17,12 +17,12 @@ class PycoxWrapper:
         self.all_times = all_times
         self.all_events = all_events
         self.input_size = input_size
-        if wrapped_model is not None:
-            if not hasattr(wrapped_model, "predict_cif") and len(np.unique(all_events)) > 2:
-                raise ValueError(f"It seems like {type(wrapped_model).__name__} does not support competing risks because it does not have a predict_cif method.") 
-            self.wrapped_model = wrapped_model
-        else:
-            self.wrapped_model = self._deephit()
+        if not hasattr(wrapped_model, "predict_cif") and len(np.unique(all_events)) > 2:
+            raise ValueError(
+                f"It seems like {type(wrapped_model).__name__} does not support competing risks because it does not have a predict_cif method."
+            )
+        self.wrapped_model = wrapped_model
+
         if self.labtrans is not None:
             self.all_times, _ = self.labtrans.transform(self.all_times, self.all_events)
         self.fitted = False
@@ -30,71 +30,10 @@ class PycoxWrapper:
     def __str__(self):
         # Return the name of the wrapped model
         return type(self.wrapped_model).__name__
-    
+
     def __repr__(self):
         # Return the name of the wrapped model
         return type(self.wrapped_model).__name__
-
-    def _deephit(self):
-        """
-        A simplified version of the DeepHit model from the pycox library as default if no model is provided."""
-        import torch
-        import torchtuples as tt
-        from pycox.models import DeepHit
-        from pycox.preprocessing.label_transforms import LabTransDiscreteTime
-        class CauseSpecificNet(torch.nn.Module):
-            """Network structure similar to the DeepHit paper, but without the residual
-            connections (for simplicity).
-            """
-
-            def __init__(
-                self,
-                in_features,
-                num_nodes_shared,
-                num_nodes_indiv,
-                num_risks,
-                out_features,
-                batch_norm=True,
-                dropout=None,
-            ):
-                super().__init__()
-                self.shared_net = tt.practical.MLPVanilla(
-                    in_features,
-                    num_nodes_shared[:-1],
-                    num_nodes_shared[-1],
-                    batch_norm,
-                    dropout,
-                )
-                self.risk_nets = torch.nn.ModuleList()
-                for _ in range(num_risks):
-                    net = tt.practical.MLPVanilla(
-                        num_nodes_shared[-1],
-                        num_nodes_indiv,
-                        out_features,
-                        batch_norm,
-                        dropout,
-                    )
-                    self.risk_nets.append(net)
-
-            def forward(self, input):
-                out = self.shared_net(input)
-                out = [net(out) for net in self.risk_nets]
-                out = torch.stack(out, dim=1)
-                return out
-
-        if self.labtrans is None:
-            self.labtrans = LabTransDiscreteTime(40, scheme="quantiles")
-            self.labtrans.fit(self.all_times, self.all_events)
-        net = CauseSpecificNet(
-            self.input_size,
-            num_nodes_shared=[64, 64],
-            num_nodes_indiv=[32],
-            num_risks=len(np.unique(self.all_events)) -1,
-            out_features=len(self.jumps),
-            batch_norm=True,
-            dropout=0.1,
-        )
-        return DeepHit(net, tt.optim.Adam, duration_index=self.jumps)
 
     def _handle_all_missing_columns(self, input: np.ndarray, mode: str) -> np.ndarray:
         """Handle all missing columns in the input data.
