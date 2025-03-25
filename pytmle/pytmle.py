@@ -218,7 +218,6 @@ class PyTMLE:
                 trt=self._group,
                 event_times=self._event_times,
                 event_indicator=self._event_indicator,
-                target_events=self.target_events,
                 cv_folds=cv_folds,
                 return_model=save_models,
                 models=models,
@@ -227,6 +226,7 @@ class PyTMLE:
                 batch_size=batch_size,
                 fit_risks_model=fit_risks_model,
                 fit_censoring_model=fit_censoring_model,
+                verbose=self.verbose,
             )
             self.models.update(model_dict)
             # update times if they were tranformed in the risk model

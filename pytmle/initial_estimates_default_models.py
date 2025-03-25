@@ -1,24 +1,42 @@
-import torch
-import torchtuples as tt
+import numpy as np
+from sksurv.linear_model import CoxPHSurvivalAnalysis
+from typing import List, Tuple
+import logging
 from pycox.models import DeepHit
 from pycox.preprocessing.label_transforms import LabTransDiscreteTime
-import numpy as np
-from typing import List, Tuple
+
+logger = logging.getLogger(__name__)
 
 def get_default_models(event_times, event_indicator, input_size, labtrans=None) -> Tuple[List, List]:
     """
-    Get the default models for the initial estimates of the hazard functions.
+    Get the default models for the initial estimates of the hazard functions: CoxPH and DeepHit.
     """
-    deephit, label_discretizer = default_deephit(labtrans, event_indicator, event_times, input_size)
+    risk_models = []
+    label_transformers = []
+    try:
+        deephit, label_discretizer = vanilla_deephit(
+            labtrans, event_indicator, event_times, input_size
+        )
+        risk_models.append(deephit)
+        label_transformers.append(label_discretizer)
+    except ImportError as e:
+        logger.warning(
+            f"Default DeepHit model not available: {e}. Will only cross-fit CoxPH model."
+        )
+    risk_models.append(CoxPHSurvivalAnalysis())
+    label_transformers.append(labtrans)
 
-    risk_models = [deephit]
-    label_discretizer = [label_discretizer]
+    return risk_models, label_transformers
 
-    return risk_models, label_discretizer
 
-def default_deephit(labtrans, event_indicator, event_times, input_size) -> Tuple[DeepHit, LabTransDiscreteTime]:
+def vanilla_deephit(
+    labtrans, event_indicator, event_times, input_size
+) -> Tuple[DeepHit, LabTransDiscreteTime]:
     """
     A simplified version of the DeepHit model from the pycox library as default if no model is provided."""
+    import torch
+    import torchtuples as tt
+
     class CauseSpecificNet(torch.nn.Module):
         """Network structure similar to the DeepHit paper, but without the residual
         connections (for simplicity).

@@ -4,13 +4,20 @@ from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier,
 from sklearn.model_selection import cross_val_predict, StratifiedKFold
 from typing import Tuple, Optional, List, Any
 from copy import deepcopy
+import logging
 
-from .pycox_wrapper import PycoxWrapper
+from .pycox_wrapper import PycoxWrapper, PycoxWrapperCauseSpecific
 from .initial_estimates_default_models import get_default_models
 
 
+logger = logging.getLogger(__name__)
+
+
 def fit_propensity_super_learner(
-    X: np.ndarray, y: np.ndarray, cv_folds: int, return_model: bool
+    X: np.ndarray,
+    y: np.ndarray,
+    cv_folds: int,
+    return_model: bool,
 ) -> Tuple[np.ndarray, np.ndarray, dict]:
     """
     Fit a stacking classifier to estimate the propensity scores.
@@ -45,7 +52,13 @@ def fit_propensity_super_learner(
     )
 
     # Use cross_val_predict to generate out-of-fold predictions
-    pred = cross_val_predict(super_learner, X, y, cv=cv_folds, method='predict_proba')
+    pred = cross_val_predict(
+        super_learner,
+        X,
+        y,
+        cv=cv_folds,
+        method="predict_proba",
+    )
     if return_model:
         return pred[:, 1], pred[:, 0], {"propensity_model": super_learner}
     return pred[:, 1], pred[:, 0], {}
@@ -56,7 +69,6 @@ def fit_state_learner(
     trt: np.ndarray,
     event_times: np.ndarray,
     event_indicator: np.ndarray,
-    target_events: List[int],
     cv_folds: int,
     return_model: bool,
     models,
@@ -65,6 +77,7 @@ def fit_state_learner(
     batch_size: int = 128,
     fit_risks_model: bool = True,
     fit_censoring_model: bool = True,
+    verbose: bool = False,
 ) -> Tuple[
     Optional[np.ndarray],
     Optional[np.ndarray],
@@ -76,7 +89,8 @@ def fit_state_learner(
     Optional[Any],
 ]:
     """
-    Fit a state learner to estimate the hazard functions for each event type.
+    Fit a version of the state learner (Munch & Gerds, 2024) to estimate the hazard functions for each event type.
+    https://arxiv.org/abs/2405.17259
 
     Parameters
     ----------
@@ -106,6 +120,8 @@ def fit_state_learner(
         Whether to fit the risk model.
     fit_censoring_model : bool
         Whether to fit the censoring model.
+    verbose : bool
+        Whether to print the loss of all individual risks / censoring model combinations.
 
     Returns
     -------
@@ -134,36 +150,49 @@ def fit_state_learner(
             "The number of models and label transformers must be the same."
         )
     fitted_models_dict = {}
-    for risk_model, risk_labtrans in zip(models, labtrans):
+    for risks_model, risks_labtrans in zip(models, labtrans):
         for censoring_model, censoring_labtrans in zip(models, labtrans):
 
-            # TODO: Combine risk_labtrans and censoring_labtrans
-            if risk_labtrans == censoring_labtrans:
-                combined_labtrans = risk_labtrans
-            (
-                surv_1,
-                surv_0,
-                cens_surv_1,
-                cens_surv_0,
-                haz_1,
-                haz_0,
-                fitted_models,
-            ) = cross_fit_risk_model(
-                X=X,
-                trt=trt,
-                event_times=event_times,
-                event_indicator=event_indicator,
-                cv_folds=cv_folds,
-                labtrans=combined_labtrans,
-                risks_model=risk_model if fit_risks_model else None,
-                censoring_model=censoring_model if fit_censoring_model else None,
-                n_epochs=n_epochs,
-                batch_size=batch_size,
-            )
-            # TODO: evaluate and keep only the best combination of models
-            labtrans = labtrans[0]
+            # TODO: Combine risk_labtrans and censoring_labtrans if they are different
+            if risks_labtrans == censoring_labtrans:
+                combined_labtrans = risks_labtrans
+            elif risks_labtrans is None and censoring_labtrans is not None:
+                combined_labtrans = censoring_labtrans
+            elif risks_labtrans is not None and censoring_labtrans is None:
+                combined_labtrans = risks_labtrans
+            try:
+                (
+                    surv_1,
+                    surv_0,
+                    cens_surv_1,
+                    cens_surv_0,
+                    haz_1,
+                    haz_0,
+                    fitted_models,
+                ) = cross_fit_risk_model(
+                    X=X,
+                    trt=trt,
+                    event_times=event_times,
+                    event_indicator=event_indicator,
+                    cv_folds=cv_folds,
+                    labtrans=combined_labtrans,
+                    risks_model=risks_model if fit_risks_model else None,
+                    censoring_model=censoring_model if fit_censoring_model else None,
+                    n_epochs=n_epochs,
+                    batch_size=batch_size,
+                )
+            except Exception as e:
+                if verbose:
+                    logger.warning(
+                        f"({risks_model.__class__.__name__} | {censoring_model.__class__.__name__}) failed: {e}"
+                    )
+                continue
+            # TODO: make this a super learner: evaluate and keep only the best combination of models
             fitted_models_dict.update(fitted_models)
 
+    logger.warning(
+        "fit_state_learner is currently not a super learner. Will only use the last fitted combination of models. Super learner will be implemented in future commits."
+    )
     if return_model:
         return (
             haz_1,
@@ -173,9 +202,9 @@ def fit_state_learner(
             cens_surv_1,
             cens_surv_0,
             fitted_models_dict,
-            labtrans,
+            combined_labtrans,
         )
-    return haz_1, haz_0, surv_1, surv_0, cens_surv_1, cens_surv_0, {}, labtrans
+    return haz_1, haz_0, surv_1, surv_0, cens_surv_1, cens_surv_0, {}, combined_labtrans
 
 
 def cross_fit_risk_model(
@@ -217,13 +246,25 @@ def cross_fit_risk_model(
         X_val_0 = np.column_stack((np.zeros_like(trt_val), X_val)).astype(np.float32)
 
         if risks_model is not None:
-            model_i = PycoxWrapper(
-                deepcopy(risks_model),
-                labtrans=labtrans,
-                all_times=event_times,
-                all_events=event_indicator,
-                input_size=X.shape[1] + 1,
-            )
+            if len(np.unique(event_times)) <= 2 or hasattr(risks_model, "predict_cif"):
+                model_i = PycoxWrapper(
+                    deepcopy(risks_model),
+                    labtrans=labtrans,
+                    all_times=event_times,
+                    all_events=event_indicator,
+                    input_size=X.shape[1] + 1,
+                )
+            else:
+                logger.debug(
+                    f"Fitting cause-specific model because {risks_model.__class__.__name__} does not support CIF."
+                )
+                model_i = PycoxWrapperCauseSpecific(
+                    deepcopy(risks_model),
+                    labtrans=labtrans,
+                    all_times=event_times,
+                    all_events=event_indicator,
+                    input_size=X.shape[1] + 1,
+                )
             labels = (
                 event_times_train.astype(np.float32),
                 event_indicator_train.astype(int),

@@ -1,7 +1,11 @@
 import pandas as pd
 import numpy as np
-
+from copy import deepcopy
 from sksurv.util import Surv
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 class PycoxWrapper:
     """
@@ -17,10 +21,6 @@ class PycoxWrapper:
         self.all_times = all_times
         self.all_events = all_events
         self.input_size = input_size
-        if not hasattr(wrapped_model, "predict_cif") and len(np.unique(all_events)) > 2:
-            raise ValueError(
-                f"It seems like {type(wrapped_model).__name__} does not support competing risks because it does not have a predict_cif method."
-            )
         self.wrapped_model = wrapped_model
 
         if self.labtrans is not None:
@@ -162,3 +162,74 @@ class PycoxWrapper:
             return self.labtrans.cuts
         else:
             return np.unique(self.all_times)
+
+
+class PycoxWrapperCauseSpecific(PycoxWrapper):
+    """
+    A version of the PycoxWrapper that fits one model per cause of failure.
+    """
+
+    def __init__(self, wrapped_model, all_events: np.ndarray, **kwargs):
+        super().__init__(wrapped_model=wrapped_model, all_events=all_events, **kwargs)
+        self.wrapped_model = {}
+        for i in np.unique(all_events):
+            if i != 0:
+                self.wrapped_model[i] = deepcopy(wrapped_model)
+
+    def __str__(self):
+        return f"CauseSpecific{type(self.wrapped_model[1]).__name__}"
+
+    def __repr__(self):
+        return f"CauseSpecific{type(self.wrapped_model[1]).__name__}"
+
+    def fit(self, input, target, **kwargs):
+        if self.labtrans is not None:
+            event_indicator = target[1]
+            target = self.labtrans.transform(*target)
+            target = (target[0], target[1] * event_indicator)
+        self.fit_times = target[0]
+        for i, model in self.wrapped_model.items():
+            if "sksurv" in type(model).__module__:
+                # scikit-survival-based model
+                target_i = Surv.from_arrays(target[1] == i, target[0])
+                input = self._handle_all_missing_columns(input, "remove")
+                model.fit(input, target_i)
+            else:
+                # pycox-based model
+                target_i = (target[0], (target[1].astype(int) == i).astype(int))
+                input = self._handle_all_missing_columns(input, "zero")
+                model.fit(input, target_i, **kwargs)
+                # Cox-like models in pycox require the baseline hazard to be computed after fitting
+                if hasattr(model, "compute_baseline_hazards"):
+                    model.compute_baseline_hazards()
+        self.fitted = True
+
+    def predict_surv(self, input, **kwargs) -> np.ndarray:
+        haz = self.predict_haz(input)
+        return np.exp(-np.cumsum(np.sum(haz, axis=-1), axis=1))
+
+    def predict_haz(self, input, **kwargs) -> np.ndarray:
+        haz = np.zeros((input.shape[0], len(self.jumps), len(self.wrapped_model)))
+        for i, model in self.wrapped_model.items():
+            if hasattr(model, "predict_cumulative_hazards"):
+                # pycox without competing risks (e.g., DeepSurv), for cause i
+                input = self._handle_all_missing_columns(input, "zero")
+                cum_haz_i = model.predict_cumulative_hazards(input).values
+                if cum_haz_i.shape[1] == len(input):
+                    cum_haz_i = cum_haz_i.T
+                haz_i = np.diff(cum_haz_i, prepend=0, axis=1)
+                haz_i = self._update_times(haz_i, 0, ffill=False)
+                haz[..., i - 1] = haz_i
+            elif hasattr(model, "predict_cumulative_hazard_function"):
+                # scikit-survival
+                input = self._handle_all_missing_columns(input, "remove")
+                cum_haz = model.predict_cumulative_hazard_function(
+                    input, return_array=True
+                )
+                if cum_haz.shape[1] == len(input):
+                    cum_haz = cum_haz.T
+                haz_i = np.diff(cum_haz, prepend=0, axis=1)
+                haz_i = self._update_times(haz_i, 0, ffill=False)
+                haz[..., i - 1] = haz_i
+
+        return haz

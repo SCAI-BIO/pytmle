@@ -37,7 +37,13 @@ def test_fit(mock_main_class_inputs, precomputed_initial_est_mask):
         data=df, target_times=[1.0, 2.0, 3.0], initial_estimates=initial_estimates
     )
 
-    tmle.fit(max_updates=100, bootstrap=True, n_bootstrap=4, use_cox_superlearner=True)
+    tmle.fit(
+        max_updates=100,
+        bootstrap=True,
+        n_bootstrap=4,
+        use_cox_superlearner=True,
+        cv_folds=3,
+    )
     assert tmle._fitted
     # TMLE should converge easily on the simple mock data
     assert tmle.has_converged, "TMLE update did not converge."
