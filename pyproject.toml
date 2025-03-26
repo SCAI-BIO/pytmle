@@ -1,0 +1,25 @@
+[project]
+name = "pytmle"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+    "matplotlib>=3.9.4",
+    "numpy>=2.0.2",
+    "pandas>=2.2.3",
+    "pycox",
+    "scikit-learn>=1.5.2",
+    "scikit-survival>=0.23.1",
+    "seaborn>=0.13.2",
+    "tqdm>=4.67.1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "flake8>=7.1.2",
+    "pytest>=8.3.5",
+]
+
+[tool.uv.sources]
+pycox = { git = "https://github.com/pooya-mohammadi/pycox" }

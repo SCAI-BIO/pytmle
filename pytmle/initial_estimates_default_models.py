@@ -3,8 +3,6 @@ from sksurv.linear_model import CoxPHSurvivalAnalysis
 from sksurv.ensemble import RandomSurvivalForest
 from typing import List, Tuple
 import logging
-from pycox.models import DeepHit
-from pycox.preprocessing.label_transforms import LabTransDiscreteTime
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +35,7 @@ def get_default_models(
         label_transformers.append(label_discretizer)
     except ImportError as e:
         logger.warning(
-            f"Default DeepHit model not available: {e}. Will only cross-fit CoxPH model."
+            f"Default DeepHit model not available: {e}. Will only cross-fit Cox PH and random survival forest."
         )
 
     # CoxPH model
@@ -53,13 +51,13 @@ def get_default_models(
     return risk_models, censoring_models, label_transformers
 
 
-def vanilla_deephit(
-    labtrans, event_indicator, event_times, input_size
-) -> Tuple[DeepHit, LabTransDiscreteTime]:
+def vanilla_deephit(labtrans, event_indicator, event_times, input_size):
     """
     A simplified version of the DeepHit model from the pycox library as default if no model is provided."""
     import torch
     import torchtuples as tt
+    from pycox.models import DeepHit
+    from pycox.preprocessing.label_transforms import LabTransDiscreteTime
 
     class CauseSpecificNet(torch.nn.Module):
         """Network structure similar to the DeepHit paper, but without the residual
