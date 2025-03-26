@@ -103,6 +103,6 @@ def test_predict(mock_main_class_inputs, get_model):
     assert surv.shape[1] == len(wrapper.jumps)
 
     # predict hazard function
-    haz = wrapper.predict_haz(X[:25].values)
+    haz = wrapper.predict_cumhaz(X[:25].values)
     assert haz.shape[0] == 25
     assert haz.shape[1] == len(wrapper.jumps)

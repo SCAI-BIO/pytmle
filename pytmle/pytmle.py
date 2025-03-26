@@ -222,6 +222,7 @@ class PyTMLE:
                 return_model=save_models,
                 models=models,
                 labtrans=labtrans,
+                max_time=max(self.target_times),
                 n_epochs=n_epochs,
                 batch_size=batch_size,
                 fit_risks_model=fit_risks_model,

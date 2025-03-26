@@ -1,5 +1,6 @@
 import numpy as np
 from sksurv.linear_model import CoxPHSurvivalAnalysis
+from sksurv.ensemble import RandomSurvivalForest
 from typing import List, Tuple
 import logging
 from pycox.models import DeepHit
@@ -7,26 +8,49 @@ from pycox.preprocessing.label_transforms import LabTransDiscreteTime
 
 logger = logging.getLogger(__name__)
 
-def get_default_models(event_times, event_indicator, input_size, labtrans=None) -> Tuple[List, List]:
+
+def get_default_models(
+    event_times,
+    event_indicator,
+    input_size,
+    labtrans=None,
+) -> Tuple[List, List, List]:
     """
     Get the default models for the initial estimates of the hazard functions: CoxPH and DeepHit.
     """
     risk_models = []
+    censoring_models = []
     label_transformers = []
+    # DeepHit model
     try:
         deephit, label_discretizer = vanilla_deephit(
             labtrans, event_indicator, event_times, input_size
         )
+        deephit_censoring, _ = vanilla_deephit(
+            label_discretizer,
+            (event_indicator == 0).astype(int),
+            event_times,
+            input_size,
+        )
         risk_models.append(deephit)
+        censoring_models.append(deephit_censoring)
         label_transformers.append(label_discretizer)
     except ImportError as e:
         logger.warning(
             f"Default DeepHit model not available: {e}. Will only cross-fit CoxPH model."
         )
-    risk_models.append(CoxPHSurvivalAnalysis())
-    label_transformers.append(labtrans)
 
-    return risk_models, label_transformers
+    # CoxPH model
+    risk_models.append(CoxPHSurvivalAnalysis())
+    censoring_models.append(CoxPHSurvivalAnalysis())
+    label_transformers.append(None)
+
+    # Random survival forest
+    risk_models.append(RandomSurvivalForest(n_jobs=-1))
+    censoring_models.append(RandomSurvivalForest(n_jobs=-1))
+    label_transformers.append(None)
+
+    return risk_models, censoring_models, label_transformers
 
 
 def vanilla_deephit(
@@ -80,11 +104,12 @@ def vanilla_deephit(
     if labtrans is None:
         labtrans = LabTransDiscreteTime(40, scheme="quantiles")
         labtrans.fit(event_times, event_indicator)
+
     net = CauseSpecificNet(
         input_size,
         num_nodes_shared=[64, 64],
         num_nodes_indiv=[32],
-        num_risks=len(np.unique(event_indicator)) -1,
+        num_risks=len(np.unique(event_indicator)) - 1,
         out_features=len(labtrans.cuts),
         batch_norm=True,
         dropout=0.1,

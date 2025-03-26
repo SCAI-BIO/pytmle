@@ -67,10 +67,10 @@ class PycoxWrapper:
 
         mask = np.isnan(pred_updated)
         if ffill:
-            row,col = pred_updated.shape
+            row, col = pred_updated.shape[:2]
             for i in range(row):
                 for j in range(col):
-                    if mask[i][j]:
+                    if mask[i][j].all():
                         if j == 0:
                             pred_updated[i][j] = value
                         else:
@@ -118,9 +118,8 @@ class PycoxWrapper:
         surv = self._update_times(surv, 1, ffill=True)
         return surv
 
-    def predict_haz(self, input, **kwargs) -> np.ndarray:
-        """ Predict hazard function for a given input"
-        """
+    def predict_cumhaz(self, input, **kwargs) -> np.ndarray:
+        """Predict cumulative hazard function for a given input" """
         if not self.fitted:
             raise ValueError("Model has not been fitted")
 
@@ -132,29 +131,32 @@ class PycoxWrapper:
             surv_expanded = np.expand_dims(surv, axis=-1)
             surv_expanded = np.repeat(surv_expanded, cif.shape[-1], axis=-1)
             haz = np.diff(cif, prepend=0, axis=1) / surv_expanded
+            cum_haz = np.cumsum(haz, axis=1)
+            if cum_haz.shape[2] > len(np.unique(self.all_events)) - 1:
+                raise RuntimeError(
+                    f"CIF output has {cum_haz.shape[2]} causes of failure, but only {len(np.unique(self.all_events)) - 1} are present in the data."
+                )
         elif hasattr(self.wrapped_model, 'predict_cumulative_hazards'):
             # pycox without competing risks (e.g., DeepSurv)
             input = self._handle_all_missing_columns(input, "zero")
             cum_haz = self.wrapped_model.predict_cumulative_hazards(input).values
             if cum_haz.shape[1] == len(input):
                 cum_haz = cum_haz.T
-            haz = np.diff(cum_haz, prepend=0, axis=1)
-            if len(haz.shape) == 2:
-                haz = np.expand_dims(haz, -1)
+            if len(cum_haz.shape) == 2:
+                cum_haz = np.expand_dims(cum_haz, -1)
         elif hasattr(self.wrapped_model, 'predict_cumulative_hazard_function'):
             # scikit-survival
             input = self._handle_all_missing_columns(input, "remove")
             cum_haz = self.wrapped_model.predict_cumulative_hazard_function(input, return_array=True)
             if cum_haz.shape[1] == len(input):
                 cum_haz = cum_haz.T
-            haz = np.diff(cum_haz, prepend=0, axis=1)
-            if len(haz.shape) == 2:
-                haz = np.expand_dims(haz, -1)
+            if len(cum_haz.shape) == 2:
+                cum_haz = np.expand_dims(cum_haz, -1)
         else:
             raise ValueError("Model has no method to predict cumulative hazards or CIF.")
 
-        haz = self._update_times(haz, 0, ffill=False)
-        return haz
+        cum_haz = self._update_times(cum_haz, 0, ffill=True)
+        return cum_haz
 
     @property
     def jumps(self) -> np.ndarray:
@@ -205,11 +207,11 @@ class PycoxWrapperCauseSpecific(PycoxWrapper):
         self.fitted = True
 
     def predict_surv(self, input, **kwargs) -> np.ndarray:
-        haz = self.predict_haz(input)
-        return np.exp(-np.cumsum(np.sum(haz, axis=-1), axis=1))
+        cum_haz = self.predict_cumhaz(input)
+        return np.exp(-np.sum(cum_haz, axis=-1))
 
-    def predict_haz(self, input, **kwargs) -> np.ndarray:
-        haz = np.zeros((input.shape[0], len(self.jumps), len(self.wrapped_model)))
+    def predict_cumhaz(self, input, **kwargs) -> np.ndarray:
+        cum_haz = np.zeros((input.shape[0], len(self.jumps), len(self.wrapped_model)))
         for i, model in self.wrapped_model.items():
             if hasattr(model, "predict_cumulative_hazards"):
                 # pycox without competing risks (e.g., DeepSurv), for cause i
@@ -217,19 +219,17 @@ class PycoxWrapperCauseSpecific(PycoxWrapper):
                 cum_haz_i = model.predict_cumulative_hazards(input).values
                 if cum_haz_i.shape[1] == len(input):
                     cum_haz_i = cum_haz_i.T
-                haz_i = np.diff(cum_haz_i, prepend=0, axis=1)
-                haz_i = self._update_times(haz_i, 0, ffill=False)
-                haz[..., i - 1] = haz_i
+                cum_haz_i = self._update_times(cum_haz_i, 0, ffill=True)
+                cum_haz[..., i - 1] = cum_haz_i
             elif hasattr(model, "predict_cumulative_hazard_function"):
                 # scikit-survival
                 input = self._handle_all_missing_columns(input, "remove")
-                cum_haz = model.predict_cumulative_hazard_function(
+                cum_haz_i = model.predict_cumulative_hazard_function(
                     input, return_array=True
                 )
                 if cum_haz.shape[1] == len(input):
-                    cum_haz = cum_haz.T
-                haz_i = np.diff(cum_haz, prepend=0, axis=1)
-                haz_i = self._update_times(haz_i, 0, ffill=False)
-                haz[..., i - 1] = haz_i
+                    cum_haz_i = cum_haz.T
+                cum_haz_i = self._update_times(cum_haz_i, 0, ffill=True)
+                cum_haz[..., i - 1] = cum_haz_i
 
-        return haz
+        return cum_haz

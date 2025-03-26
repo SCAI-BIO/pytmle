@@ -11,7 +11,8 @@ from sksurv.util import Surv
 from pytmle.estimates import InitialEstimates, UpdatedEstimates
 from pytmle.get_influence_curve import get_eic
 
-def get_mock_input_data(n_samples: int = 1000) -> pd.DataFrame:
+
+def get_mock_input_data(n_samples: int = 700) -> pd.DataFrame:
     np.random.seed(42)
 
     data = {

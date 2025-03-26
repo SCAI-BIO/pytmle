@@ -2,7 +2,7 @@ import numpy as np
 from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier, StackingClassifier
 from sklearn.model_selection import cross_val_predict, StratifiedKFold
-from typing import Tuple, Optional, List, Any
+from typing import Tuple, Optional, Any
 from copy import deepcopy
 import logging
 
@@ -64,6 +64,32 @@ def fit_propensity_super_learner(
     return pred[:, 1], pred[:, 0], {}
 
 
+def abs_risk_integrated_brier_score(
+    chf: np.ndarray, counting_processes: np.ndarray, time_grid: np.ndarray
+) -> float:
+    """
+    Compute the integrated Brier score for the absolute risks
+    and cause-specific counting processes used as loss in the state learner.
+
+    Parameters
+    ----------
+    chf : np.ndarray
+        The cumulative hazard functions.
+    counting_processes : np.ndarray
+        The counting processes.
+    """
+    s = np.exp(-np.sum(chf, axis=-1))
+    s_ = np.concatenate((np.ones((s.shape[0], 1)), s[:, :-1]), axis=1)
+    hf = np.diff(chf, axis=1, prepend=0)
+    abs_risk = np.cumsum(hf * np.expand_dims(s_, -1), axis=1)
+    brier = (abs_risk - counting_processes) ** 2
+    # TODO: Add weights?
+    ibs = np.mean(
+        np.sum(brier * np.diff(time_grid, prepend=0)[np.newaxis, :, np.newaxis], axis=1)
+    )
+    return ibs
+
+
 def fit_state_learner(
     X: np.ndarray,
     trt: np.ndarray,
@@ -73,6 +99,7 @@ def fit_state_learner(
     return_model: bool,
     models,
     labtrans,
+    max_time: float,
     n_epochs: int = 100,
     batch_size: int = 128,
     fit_risks_model: bool = True,
@@ -109,13 +136,15 @@ def fit_state_learner(
     return_model : bool
         Whether to return the fitted model.
     labtrans :
-        The label transformer. Will be ignored if use_cox_superlearner is True.
-    models :
-        The risk model. Will be ignored if use_cox_superlearner is True.
+        The label transformer.
+    max_time :
+        The time up to which the hazard functions are evaluated.
+    risk_models :
+        The risk models
     n_epochs : int
-        The number of epochs. Will be ignored if use_cox_superlearner is True.
+        The number of epochs.
     batch_size : int
-        The batch size. Will be ignored if use_cox_superlearner is True.
+        The batch size.
     fit_risks_model : bool
         Whether to fit the risk model.
     fit_censoring_model : bool
@@ -131,44 +160,79 @@ def fit_state_learner(
         the estimated counterfactual censoring survival functions for each event type,
         the fitted models, the label transformer.
     """
+    # A time grid for the integrated Brier scores
+    time_grid = np.linspace(0, max_time, 100)
+    # If no models are provided, use the default models
     if models is None:
-        models, labtrans = get_default_models(
+        risks_models, censoring_models, labtrans = get_default_models(
             event_times=event_times,
             event_indicator=event_indicator,
             input_size=X.shape[1] + 1,  # number of covariateses + treatment
-            labtrans=labtrans,
         )
-    elif not isinstance(models, list):
-        models = [models]
+        if not fit_risks_model:
+            risks_models = [None]
+        if not fit_censoring_model:
+            censoring_models = [None]
+    else:
+        if not isinstance(models, list):
+            risks_models = [models] if fit_risks_model else [None]
+            censoring_models = [models] if fit_censoring_model else [None]
+        else:
+            risks_models = models if fit_risks_model else [None]
+            censoring_models = models if fit_censoring_model else [None]
     if not isinstance(labtrans, list):
         if labtrans is None:
-            labtrans = [None] * len(models)
+            labtrans = [None] * len(risks_models)
         else:
             labtrans = [labtrans]
-    if len(models) != len(labtrans):
+    risks_label_transformers = labtrans if fit_risks_model else [None]
+    censoring_label_transformers = labtrans if fit_censoring_model else [None]
+    if (fit_risks_model and len(risks_models) != len(labtrans)) or (
+        fit_censoring_model and len(censoring_models) != len(labtrans)
+    ):
         raise ValueError(
             "The number of models and label transformers must be the same."
         )
-    fitted_models_dict = {}
-    for risks_model, risks_labtrans in zip(models, labtrans):
-        for censoring_model, censoring_labtrans in zip(models, labtrans):
 
-            # TODO: Combine risk_labtrans and censoring_labtrans if they are different
+    fitted_models_dict = {}
+    min_loss = np.inf
+    for risks_model, risks_labtrans in zip(risks_models, risks_label_transformers):
+        for censoring_model, censoring_labtrans in zip(
+            censoring_models, censoring_label_transformers
+        ):
+            # Combine the label transformers
             if risks_labtrans == censoring_labtrans:
                 combined_labtrans = risks_labtrans
             elif risks_labtrans is None and censoring_labtrans is not None:
                 combined_labtrans = censoring_labtrans
             elif risks_labtrans is not None and censoring_labtrans is None:
                 combined_labtrans = risks_labtrans
+            else:
+                # chain the transformations if they are different
+                class CombinedLabtrans:
+                    def __init__(self, risks_lt, censoring_lt):
+                        self.risks_lt = risks_lt
+                        self.censoring_lt = censoring_lt
+
+                    def transform(self, durations, events):
+                        return self.risks_lt.transform(
+                            self.censoring_lt.transform(durations, events)
+                        )
+
+                combined_labtrans = CombinedLabtrans(risks_labtrans, censoring_labtrans)
             try:
+                # cross-fit the risk and censoring models
                 (
-                    surv_1,
-                    surv_0,
-                    cens_surv_1,
-                    cens_surv_0,
-                    haz_1,
-                    haz_0,
+                    surv_1_i,
+                    surv_0_i,
+                    cens_surv_1_i,
+                    cens_surv_0_i,
+                    cumhaz_1_i,
+                    cumhaz_0_i,
+                    cumhaz_f_i,
+                    cens_cumhaz_f_i,
                     fitted_models,
+                    jumps,
                 ) = cross_fit_risk_model(
                     X=X,
                     trt=trt,
@@ -176,23 +240,73 @@ def fit_state_learner(
                     event_indicator=event_indicator,
                     cv_folds=cv_folds,
                     labtrans=combined_labtrans,
-                    risks_model=risks_model if fit_risks_model else None,
-                    censoring_model=censoring_model if fit_censoring_model else None,
+                    risks_model=risks_model,
+                    censoring_model=censoring_model,
                     n_epochs=n_epochs,
                     batch_size=batch_size,
                 )
+                # Get the counting processes per event type and stack all cumulative hazards
+                grid_mat = np.tile(time_grid, (X.shape[0], 1))
+                event_mat = np.expand_dims(event_times, 1) <= grid_mat
+                chfs_list = []
+                events_by_cause_list = []
+                if fit_risks_model:
+                    causes = np.unique(event_indicator[event_indicator != 0])
+                    for c in causes:
+                        events_by_cause_list.append(
+                            event_mat * np.expand_dims((event_indicator == c), 1)
+                        )
+                    for i in range(len(events_by_cause_list)):
+                        chfs_list.append(cumhaz_f_i[..., i])  # type: ignore
+                if fit_censoring_model:
+                    events_by_cause_list.append(
+                        event_mat * np.expand_dims((event_indicator == 0), 1)
+                    )
+                    chfs_list.append(cens_cumhaz_f_i[..., 0])
+                chfs = np.stack(chfs_list, axis=-1)
+                events_by_cause = np.stack(events_by_cause_list, axis=-1)
+                # Get cumulative hazards for the time_grid
+                time_grid_indices = np.searchsorted(jumps, time_grid, side="right") - 1
+                time_grid_indices = np.clip(time_grid_indices, 0, len(jumps) - 1)
+                chfs = chfs[:, time_grid_indices, :]
+
+                # compute the integrated Brier score including absolute risks
+                loss = abs_risk_integrated_brier_score(chfs, events_by_cause, time_grid)
+
+                if verbose:
+                    logger.info(
+                        f"({risks_model.__class__.__name__} | {censoring_model.__class__.__name__}): {loss}"
+                    )
+
+                if loss < min_loss:
+                    min_loss = loss
+                    if cumhaz_1_i is not None and cumhaz_0_i is not None:
+                        haz_1 = np.diff(cumhaz_1_i, prepend=0, axis=1)
+                        haz_0 = np.diff(cumhaz_0_i, prepend=0, axis=1)
+                        surv_1 = surv_1_i
+                        surv_0 = surv_0_i
+                    else:
+                        haz_1 = None
+                        haz_0 = None
+                        surv_1 = None
+                        surv_0 = None
+                    if cens_surv_1_i is not None and cens_surv_0_i is not None:
+                        cens_surv_1 = cens_surv_1_i
+                        cens_surv_0 = cens_surv_0_i
+                    else:
+                        cens_surv_1 = None
+                        cens_surv_0 = None
+                    if return_model:
+                        fitted_models_dict.update(fitted_models)
+
             except Exception as e:
+                # If one of the model fails, skip it
                 if verbose:
                     logger.warning(
                         f"({risks_model.__class__.__name__} | {censoring_model.__class__.__name__}) failed: {e}"
                     )
                 continue
-            # TODO: make this a super learner: evaluate and keep only the best combination of models
-            fitted_models_dict.update(fitted_models)
 
-    logger.warning(
-        "fit_state_learner is currently not a super learner. Will only use the last fitted combination of models. Super learner will be implemented in future commits."
-    )
     if return_model:
         return (
             haz_1,
@@ -232,8 +346,10 @@ def cross_fit_risk_model(
     surv_0 = np.empty((X.shape[0], len(jumps)))
     cens_surv_1 = np.empty((X.shape[0], len(jumps)))
     cens_surv_0 = np.empty((X.shape[0], len(jumps)))
-    haz_1 = np.empty((X.shape[0], len(jumps), num_risks))
-    haz_0 = np.empty((X.shape[0], len(jumps), num_risks))
+    cumhaz_1 = np.empty((X.shape[0], len(jumps), num_risks))
+    cumhaz_0 = np.empty((X.shape[0], len(jumps), num_risks))
+    cumhaz_f = np.empty((X.shape[0], len(jumps), num_risks))
+    cens_cumhaz_f = np.empty((X.shape[0], len(jumps), 1))
     for i, (train_indices, val_indices) in enumerate(skf.split(X, trt)):
         X_train, X_val = X[train_indices], X[val_indices]
         trt_train, trt_val = trt[train_indices], trt[val_indices]
@@ -242,8 +358,11 @@ def cross_fit_risk_model(
 
         input = np.column_stack((trt_train, X_train)).astype(np.float32)
 
+        # counterfactual
         X_val_1 = np.column_stack((np.ones_like(trt_val), X_val)).astype(np.float32)
         X_val_0 = np.column_stack((np.zeros_like(trt_val), X_val)).astype(np.float32)
+        # factual
+        X_val_f = np.column_stack((trt_val, X_val)).astype(np.float32)
 
         if risks_model is not None:
             if len(np.unique(event_times)) <= 2 or hasattr(risks_model, "predict_cif"):
@@ -281,14 +400,15 @@ def cross_fit_risk_model(
 
             surv_1[val_indices] = model_i.predict_surv(X_val_1)
             surv_0[val_indices] = model_i.predict_surv(X_val_0)
-            haz_1[val_indices] = model_i.predict_haz(X_val_1)
-            haz_0[val_indices] = model_i.predict_haz(X_val_0)
+            cumhaz_1[val_indices] = model_i.predict_cumhaz(X_val_1)
+            cumhaz_0[val_indices] = model_i.predict_cumhaz(X_val_0)
+            cumhaz_f[val_indices] = model_i.predict_cumhaz(X_val_f)
         if censoring_model is not None:
             model_i_censoring = PycoxWrapper(
                 deepcopy(censoring_model),
                 labtrans=labtrans,
                 all_times=event_times,
-                all_events=event_indicator,
+                all_events=event_indicator == 0,
                 input_size=X.shape[1] + 1,
             )
             labels = (
@@ -307,13 +427,17 @@ def cross_fit_risk_model(
 
             cens_surv_1[val_indices] = model_i_censoring.predict_surv(X_val_1)
             cens_surv_0[val_indices] = model_i_censoring.predict_surv(X_val_0)
+            cens_cumhaz_f[val_indices] = model_i_censoring.predict_cumhaz(X_val_1)
 
     return (
         surv_1 if risks_model is not None else None,
         surv_0 if risks_model is not None else None,
         cens_surv_1 if censoring_model is not None else None,
         cens_surv_0 if censoring_model is not None else None,
-        haz_1 if risks_model is not None else None,
-        haz_0 if risks_model is not None else None,
+        cumhaz_1 if risks_model is not None else None,
+        cumhaz_0 if risks_model is not None else None,
+        cumhaz_f if risks_model is not None else None,
+        cens_cumhaz_f if censoring_model is not None else None,
         models,
+        jumps,
     )
