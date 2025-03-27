@@ -1,19 +1,22 @@
-import pandas as pd
 import numpy as np
 from copy import deepcopy
 from sksurv.util import Surv
-
+from typing import Optional, Tuple
+import warnings
 
 class PycoxWrapper:
     """
     A wrapper class to unify the interface of different survival analysis libraries (pycox, scikit-survival)
     """
-    def __init__(self, 
-                 wrapped_model, 
-                 labtrans, 
-                 all_times: np.ndarray, 
-                 all_events: np.ndarray, 
-                 input_size: int = 0):
+    def __init__(
+        self,
+        wrapped_model,
+        labtrans,
+        all_times: np.ndarray,
+        all_events: np.ndarray,
+        input_size: int = 0,
+        verbose: int = 2,
+    ):
         self.labtrans = labtrans
         self.all_times = all_times
         self.all_events = all_events
@@ -23,6 +26,7 @@ class PycoxWrapper:
         if self.labtrans is not None:
             self.all_times, _ = self.labtrans.transform(self.all_times, self.all_events)
         self.fitted = False
+        self.verbose = verbose
 
     def __str__(self):
         # Return the name of the wrapped model
@@ -76,7 +80,13 @@ class PycoxWrapper:
             pred_updated[mask] = value 
         return pred_updated
 
-    def fit(self, input, target, **kwargs):
+    def fit(
+        self,
+        input: np.ndarray,
+        target: np.ndarray,
+        additional_inputs: Optional[Tuple[np.ndarray]] = None,
+        **kwargs,
+    ):
         if self.labtrans is not None:
             target = self.labtrans.transform(*target)
         self.fit_times = target[0]
@@ -84,18 +94,30 @@ class PycoxWrapper:
             # scikit-survival-based model
             target = Surv.from_arrays(target[1], target[0])
             input = self._handle_all_missing_columns(input, "remove")
+            if additional_inputs is not None and self.verbose >= 1:
+                warnings.warn(
+                    "Additional inputs are not supported for scikit-survival models and will be ignored.",
+                    RuntimeWarning,
+                )
             self.wrapped_model.fit(input, target)
         else:
             # pycox-based model
             target = (target[0], target[1].astype(int))
             input = self._handle_all_missing_columns(input, "zero")
+            if additional_inputs is not None:
+                input = (input,) + additional_inputs  # type: ignore
             self.wrapped_model.fit(input, target, **kwargs)
             # Cox-like models in pycox require the baseline hazard to be computed after fitting
             if hasattr(self.wrapped_model, "compute_baseline_hazards"):
                 self.wrapped_model.compute_baseline_hazards()
         self.fitted = True
 
-    def predict_surv (self, input, **kwargs) -> np.ndarray:
+    def predict_surv(
+        self,
+        input: np.ndarray,
+        additional_inputs: Optional[Tuple[np.ndarray]],
+        **kwargs,
+    ) -> np.ndarray:
         """ Predict survival function for a given input"
         """
         if not self.fitted:
@@ -103,6 +125,8 @@ class PycoxWrapper:
         if hasattr(self.wrapped_model, 'predict_surv'):
             # pycox
             input = self._handle_all_missing_columns(input, "zero")
+            if additional_inputs is not None:
+                input = (input,) + additional_inputs  # type: ignore
             surv = self.wrapped_model.predict_surv(input, **kwargs)
         elif hasattr(self.wrapped_model, "predict_survival_function"):
             # scikit-survival
@@ -115,7 +139,12 @@ class PycoxWrapper:
         surv = self._update_times(surv, 1, ffill=True)
         return surv
 
-    def predict_cumhaz(self, input, **kwargs) -> np.ndarray:
+    def predict_cumhaz(
+        self,
+        input: np.ndarray,
+        additional_inputs: Optional[Tuple[np.ndarray]],
+        **kwargs,
+    ) -> np.ndarray:
         """Predict cumulative hazard function for a given input" """
         if not self.fitted:
             raise ValueError("Model has not been fitted")
@@ -123,7 +152,9 @@ class PycoxWrapper:
         if hasattr(self.wrapped_model, 'predict_cif'):
             # pycox with competing risks (e.g., DeepHit)
             input = self._handle_all_missing_columns(input, "zero")
-            surv = self.predict_surv(input)
+            surv = self.predict_surv(input, additional_inputs)
+            if additional_inputs is not None:
+                input = (input,) + additional_inputs  # type: ignore
             cif = self.wrapped_model.predict_cif(input).swapaxes(0, 2)
             surv_expanded = np.expand_dims(surv, axis=-1)
             surv_expanded = np.repeat(surv_expanded, cif.shape[-1], axis=-1)
@@ -136,6 +167,8 @@ class PycoxWrapper:
         elif hasattr(self.wrapped_model, 'predict_cumulative_hazards'):
             # pycox without competing risks (e.g., DeepSurv)
             input = self._handle_all_missing_columns(input, "zero")
+            if additional_inputs is not None:
+                input = (input,) + additional_inputs  # type: ignore
             cum_haz = self.wrapped_model.predict_cumulative_hazards(input).values
             if cum_haz.shape[1] == len(input):
                 cum_haz = cum_haz.T
@@ -181,7 +214,13 @@ class PycoxWrapperCauseSpecific(PycoxWrapper):
     def __repr__(self):
         return f"CauseSpecific{type(self.wrapped_model[1]).__name__}"
 
-    def fit(self, input, target, **kwargs):
+    def fit(
+        self,
+        input: np.ndarray,
+        target: np.ndarray,
+        additional_inputs: Optional[Tuple[np.ndarray]],
+        **kwargs,
+    ):
         if self.labtrans is not None:
             event_indicator = target[1]
             target = self.labtrans.transform(*target)
@@ -192,27 +231,46 @@ class PycoxWrapperCauseSpecific(PycoxWrapper):
                 # scikit-survival-based model
                 target_i = Surv.from_arrays(target[1] == i, target[0])
                 input = self._handle_all_missing_columns(input, "remove")
+                if additional_inputs is not None and self.verbose >= 1:
+                    warnings.warn(
+                        "Additional inputs are not supported for scikit-survival models and will be ignored.",
+                        RuntimeWarning,
+                    )
                 model.fit(input, target_i)
             else:
                 # pycox-based model
                 target_i = (target[0], (target[1].astype(int) == i).astype(int))
                 input = self._handle_all_missing_columns(input, "zero")
+                if additional_inputs is not None:
+                    input = (input,) + additional_inputs  # type: ignore
                 model.fit(input, target_i, **kwargs)
                 # Cox-like models in pycox require the baseline hazard to be computed after fitting
                 if hasattr(model, "compute_baseline_hazards"):
                     model.compute_baseline_hazards()
         self.fitted = True
 
-    def predict_surv(self, input, **kwargs) -> np.ndarray:
-        cum_haz = self.predict_cumhaz(input)
+    def predict_surv(
+        self,
+        input: np.ndarray,
+        additional_inputs: Optional[Tuple[np.ndarray]],
+        **kwargs,
+    ) -> np.ndarray:
+        cum_haz = self.predict_cumhaz(input, additional_inputs)
         return np.exp(-np.sum(cum_haz, axis=-1))
 
-    def predict_cumhaz(self, input, **kwargs) -> np.ndarray:
+    def predict_cumhaz(
+        self,
+        input: np.ndarray,
+        additional_inputs: Optional[Tuple[np.ndarray]],
+        **kwargs,
+    ) -> np.ndarray:
         cum_haz = np.zeros((input.shape[0], len(self.jumps), len(self.wrapped_model)))
         for i, model in self.wrapped_model.items():
             if hasattr(model, "predict_cumulative_hazards"):
                 # pycox without competing risks (e.g., DeepSurv), for cause i
                 input = self._handle_all_missing_columns(input, "zero")
+                if additional_inputs is not None:
+                    input = (input,) + additional_inputs  # type: ignore
                 cum_haz_i = model.predict_cumulative_hazards(input).values
                 if cum_haz_i.shape[1] == len(input):
                     cum_haz_i = cum_haz_i.T

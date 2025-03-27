@@ -98,6 +98,7 @@ def fit_state_learner(
     return_model: bool,
     models,
     labtrans,
+    additional_inputs: Optional[Tuple],
     max_time: float,
     n_epochs: int = 100,
     batch_size: int = 128,
@@ -135,8 +136,12 @@ def fit_state_learner(
         The number of cross-validation folds..
     return_model : bool
         Whether to return the fitted model.
+    models :
+        The risk / censoring models.
     labtrans :
         The label transformer.
+    additional_inputs :
+        Additional inputs to the models (for pycox models; need to be compatible with torchtuples). Default is None.
     max_time :
         The time up to which the hazard functions are evaluated.
     risk_models :
@@ -222,101 +227,102 @@ def fit_state_learner(
                         )
 
                 combined_labtrans = CombinedLabtrans(risks_labtrans, censoring_labtrans)
-            try:
-                # cross-fit the risk and censoring models
-                (
-                    surv_1_i,
-                    surv_0_i,
-                    cens_surv_1_i,
-                    cens_surv_0_i,
-                    cumhaz_1_i,
-                    cumhaz_0_i,
-                    cumhaz_f_i,
-                    cens_cumhaz_f_i,
-                    fitted_models,
-                    jumps,
-                ) = cross_fit_risk_model(
-                    X=X,
-                    trt=trt,
-                    event_times=event_times,
-                    event_indicator=event_indicator,
-                    cv_folds=cv_folds,
-                    labtrans=combined_labtrans,
-                    risks_model=risks_model,
-                    censoring_model=censoring_model,
-                    n_epochs=n_epochs,
-                    batch_size=batch_size,
-                    verbose=verbose >= 4,
-                )
-                # Get the counting processes per event type and stack all cumulative hazards
-                grid_mat = np.tile(time_grid, (X.shape[0], 1))
-                event_mat = np.expand_dims(event_times, 1) <= grid_mat
-                chfs_list = []
-                events_by_cause_list = []
-                if fit_risks_model:
-                    causes = np.unique(event_indicator[event_indicator != 0])
-                    for c in causes:
-                        events_by_cause_list.append(
-                            event_mat * np.expand_dims((event_indicator == c), 1)
-                        )
-                    for i in range(len(events_by_cause_list)):
-                        chfs_list.append(cumhaz_f_i[..., i])  # type: ignore
-                if fit_censoring_model:
+            # try:
+            # cross-fit the risk and censoring models
+            (
+                surv_1_i,
+                surv_0_i,
+                cens_surv_1_i,
+                cens_surv_0_i,
+                cumhaz_1_i,
+                cumhaz_0_i,
+                cumhaz_f_i,
+                cens_cumhaz_f_i,
+                fitted_models,
+                jumps,
+            ) = cross_fit_risk_model(
+                X=X,
+                trt=trt,
+                event_times=event_times,
+                event_indicator=event_indicator,
+                cv_folds=cv_folds,
+                labtrans=combined_labtrans,
+                risks_model=risks_model,
+                censoring_model=censoring_model,
+                additional_inputs=additional_inputs,
+                n_epochs=n_epochs,
+                batch_size=batch_size,
+                verbose=verbose >= 4,
+            )
+            # Get the counting processes per event type and stack all cumulative hazards
+            grid_mat = np.tile(time_grid, (X.shape[0], 1))
+            event_mat = np.expand_dims(event_times, 1) <= grid_mat
+            chfs_list = []
+            events_by_cause_list = []
+            if fit_risks_model:
+                causes = np.unique(event_indicator[event_indicator != 0])
+                for c in causes:
                     events_by_cause_list.append(
-                        event_mat * np.expand_dims((event_indicator == 0), 1)
+                        event_mat * np.expand_dims((event_indicator == c), 1)
                     )
-                    chfs_list.append(cens_cumhaz_f_i[..., 0])
-                chfs = np.stack(chfs_list, axis=-1)
-                events_by_cause = np.stack(events_by_cause_list, axis=-1)
-                # Get cumulative hazards for the time_grid
-                time_grid_indices = np.searchsorted(jumps, time_grid, side="right") - 1
-                time_grid_indices = np.clip(time_grid_indices, 0, len(jumps) - 1)
-                chfs = chfs[:, time_grid_indices, :]
-
-                # compute the integrated Brier score including absolute risks
-                loss = abs_risk_integrated_brier_score(chfs, events_by_cause, time_grid)
-
-                loss_list.append(
-                    {
-                        "risks_model": risks_model.__class__.__name__,
-                        "censoring_model": censoring_model.__class__.__name__,
-                        "loss": loss,
-                    }
+                for i in range(len(events_by_cause_list)):
+                    chfs_list.append(cumhaz_f_i[..., i])  # type: ignore
+            if fit_censoring_model:
+                events_by_cause_list.append(
+                    event_mat * np.expand_dims((event_indicator == 0), 1)
                 )
-                if verbose >= 3:
-                    print(
-                        f"({risks_model.__class__.__name__} | {censoring_model.__class__.__name__}): {loss}"
-                    )
+                chfs_list.append(cens_cumhaz_f_i[..., 0])
+            chfs = np.stack(chfs_list, axis=-1)
+            events_by_cause = np.stack(events_by_cause_list, axis=-1)
+            # Get cumulative hazards for the time_grid
+            time_grid_indices = np.searchsorted(jumps, time_grid, side="right") - 1
+            time_grid_indices = np.clip(time_grid_indices, 0, len(jumps) - 1)
+            chfs = chfs[:, time_grid_indices, :]
 
-                if loss < min_loss:
-                    min_loss = loss
-                    if cumhaz_1_i is not None and cumhaz_0_i is not None:
-                        haz_1 = np.diff(cumhaz_1_i, prepend=0, axis=1)
-                        haz_0 = np.diff(cumhaz_0_i, prepend=0, axis=1)
-                        surv_1 = surv_1_i
-                        surv_0 = surv_0_i
-                    else:
-                        haz_1 = None
-                        haz_0 = None
-                        surv_1 = None
-                        surv_0 = None
-                    if cens_surv_1_i is not None and cens_surv_0_i is not None:
-                        cens_surv_1 = cens_surv_1_i
-                        cens_surv_0 = cens_surv_0_i
-                    else:
-                        cens_surv_1 = None
-                        cens_surv_0 = None
-                    if return_model:
-                        fitted_models_dict.update(fitted_models)
+            # compute the integrated Brier score including absolute risks
+            loss = abs_risk_integrated_brier_score(chfs, events_by_cause, time_grid)
 
-            except Exception as e:
-                # If one of the model fails, skip it
-                if verbose >= 1:
-                    warnings.warn(
-                        f"({risks_model.__class__.__name__} | {censoring_model.__class__.__name__}) failed: {e}",
-                        RuntimeWarning,
-                    )
-                continue
+            loss_list.append(
+                {
+                    "risks_model": risks_model.__class__.__name__,
+                    "censoring_model": censoring_model.__class__.__name__,
+                    "loss": loss,
+                }
+            )
+            if verbose >= 3:
+                print(
+                    f"({risks_model.__class__.__name__} | {censoring_model.__class__.__name__}): {loss}"
+                )
+
+            if loss < min_loss:
+                min_loss = loss
+                if cumhaz_1_i is not None and cumhaz_0_i is not None:
+                    haz_1 = np.diff(cumhaz_1_i, prepend=0, axis=1)
+                    haz_0 = np.diff(cumhaz_0_i, prepend=0, axis=1)
+                    surv_1 = surv_1_i
+                    surv_0 = surv_0_i
+                else:
+                    haz_1 = None
+                    haz_0 = None
+                    surv_1 = None
+                    surv_0 = None
+                if cens_surv_1_i is not None and cens_surv_0_i is not None:
+                    cens_surv_1 = cens_surv_1_i
+                    cens_surv_0 = cens_surv_0_i
+                else:
+                    cens_surv_1 = None
+                    cens_surv_0 = None
+                if return_model:
+                    fitted_models_dict.update(fitted_models)
+
+            # except Exception as e:
+            #     # If one of the model fails, skip it
+            #     if verbose >= 1:
+            #         warnings.warn(
+            #             f"({risks_model.__class__.__name__} | {censoring_model.__class__.__name__}) failed: {e}",
+            #             RuntimeWarning,
+            #         )
+            #     continue
     loss_df = pd.DataFrame(loss_list).sort_values(by="loss")
     if return_model:
         return (
@@ -352,6 +358,7 @@ def cross_fit_risk_model(
     labtrans,
     risks_model,
     censoring_model,
+    additional_inputs: Optional[Tuple],
     n_epochs: int,
     batch_size: int,
     verbose: bool,
@@ -362,6 +369,15 @@ def cross_fit_risk_model(
         jumps = labtrans.cuts
     else:
         jumps = np.unique(event_times)
+
+    if additional_inputs is not None:
+        if not isinstance(additional_inputs, tuple):
+            additional_inputs = (additional_inputs,)
+        for a in additional_inputs:
+            if X.shape[0] != a.shape[0]:
+                raise ValueError(
+                    "The first dimension of all additional inputs must match the number of samples in X."
+                )
 
     models = {}
     skf = StratifiedKFold(n_splits=cv_folds)
@@ -378,7 +394,15 @@ def cross_fit_risk_model(
         trt_train, trt_val = trt[train_indices], trt[val_indices]
         event_times_train = event_times[train_indices]
         event_indicator_train = event_indicator[train_indices]
-
+        if additional_inputs is not None:
+            additional_inputs_train = ()
+            additional_inputs_val = ()
+            for a in additional_inputs:
+                additional_inputs_train += (a[train_indices],)
+                additional_inputs_val += (a[val_indices],)
+        else:
+            additional_inputs_train = None
+            additional_inputs_val = None
         input = np.column_stack((trt_train, X_train)).astype(np.float32)
 
         # counterfactual
@@ -386,9 +410,6 @@ def cross_fit_risk_model(
         X_val_0 = np.column_stack((np.zeros_like(trt_val), X_val)).astype(np.float32)
         # factual
         X_val_f = np.column_stack((trt_val, X_val)).astype(np.float32)
-
-        if verbose == 0:
-            warnings.simplefilter("ignore")
 
         if risks_model is not None:
             if len(np.unique(event_times)) <= 2 or hasattr(risks_model, "predict_cif"):
@@ -398,6 +419,7 @@ def cross_fit_risk_model(
                     all_times=event_times,
                     all_events=event_indicator,
                     input_size=X.shape[1] + 1,
+                    verbose=verbose,
                 )
             else:
                 if verbose:
@@ -410,6 +432,7 @@ def cross_fit_risk_model(
                     all_times=event_times,
                     all_events=event_indicator,
                     input_size=X.shape[1] + 1,
+                    verbose=verbose,
                 )
             labels = (
                 event_times_train.astype(np.float32),
@@ -422,14 +445,21 @@ def cross_fit_risk_model(
                 batch_size=batch_size,
                 epochs=n_epochs,
                 verbose=verbose,
+                additional_inputs=additional_inputs_train,
             )  # type: ignore
             models[f"risks_model_fold_{i}"] = model_i
 
-            surv_1[val_indices] = model_i.predict_surv(X_val_1)
-            surv_0[val_indices] = model_i.predict_surv(X_val_0)
-            cumhaz_1[val_indices] = model_i.predict_cumhaz(X_val_1)
-            cumhaz_0[val_indices] = model_i.predict_cumhaz(X_val_0)
-            cumhaz_f[val_indices] = model_i.predict_cumhaz(X_val_f)
+            surv_1[val_indices] = model_i.predict_surv(X_val_1, additional_inputs_val)
+            surv_0[val_indices] = model_i.predict_surv(X_val_0, additional_inputs_val)
+            cumhaz_1[val_indices] = model_i.predict_cumhaz(
+                X_val_1, additional_inputs_val
+            )
+            cumhaz_0[val_indices] = model_i.predict_cumhaz(
+                X_val_0, additional_inputs_val
+            )
+            cumhaz_f[val_indices] = model_i.predict_cumhaz(
+                X_val_f, additional_inputs_val
+            )
         if censoring_model is not None:
             model_i_censoring = PycoxWrapper(
                 deepcopy(censoring_model),
@@ -449,12 +479,19 @@ def cross_fit_risk_model(
                 batch_size=batch_size,
                 epochs=n_epochs,
                 verbose=verbose,
+                additional_inputs=additional_inputs_train,
             )  # type: ignore
             models[f"censoring_model_fold_{i}"] = model_i_censoring
 
-            cens_surv_1[val_indices] = model_i_censoring.predict_surv(X_val_1)
-            cens_surv_0[val_indices] = model_i_censoring.predict_surv(X_val_0)
-            cens_cumhaz_f[val_indices] = model_i_censoring.predict_cumhaz(X_val_1)
+            cens_surv_1[val_indices] = model_i_censoring.predict_surv(
+                X_val_1, additional_inputs_val
+            )
+            cens_surv_0[val_indices] = model_i_censoring.predict_surv(
+                X_val_0, additional_inputs_val
+            )
+            cens_cumhaz_f[val_indices] = model_i_censoring.predict_cumhaz(
+                X_val_1, additional_inputs_val
+            )
 
     return (
         surv_1 if risks_model is not None else None,

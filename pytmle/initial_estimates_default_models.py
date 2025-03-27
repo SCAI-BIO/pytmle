@@ -61,7 +61,6 @@ def vanilla_deephit(
     from pycox.models import DeepHit
     from pycox.preprocessing.label_transforms import LabTransDiscreteTime
 
-
     class CauseSpecificNet(torch.nn.Module):
         """Network structure similar to the DeepHit paper, but without the residual
         connections (for simplicity).
@@ -103,7 +102,7 @@ def vanilla_deephit(
             return out
 
     if labtrans is None:
-        labtrans = LabTransDiscreteTime(40, scheme="quantiles")
+        labtrans = LabTransDiscreteTime(15, scheme="quantiles")
         labtrans.fit(event_times, event_indicator)
 
     net = CauseSpecificNet(

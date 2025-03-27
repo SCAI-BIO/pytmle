@@ -157,6 +157,7 @@ class PyTMLE:
         cv_folds: int,
         models,
         labtrans,
+        additional_inputs: Optional[Tuple],
         n_epochs: int,
         batch_size: int,
         save_models: bool,
@@ -237,6 +238,7 @@ class PyTMLE:
                 trt=self._group,
                 event_times=self._event_times,
                 event_indicator=self._event_indicator,
+                additional_inputs=additional_inputs,
                 cv_folds=cv_folds,
                 return_model=save_models,
                 models=models,
@@ -342,6 +344,7 @@ class PyTMLE:
         use_cox_superlearner: bool = False,
         models=None,
         labtrans=None,
+        additional_inputs: Optional[Tuple] = None,
         n_epochs: int = 100,
         batch_size: int = 128,
     ):
@@ -377,6 +380,8 @@ class PyTMLE:
             A list of models to use for the state learner. Default is None.
         labtrans : Optional, optional
             A list of labtrans objects to use for the risk model. Default is None.
+        additional_inputs : Optional[Tuple], optional
+            Additional inputs for the risk and censoring models. Can be tuple of torch.Tensors or np.ndarray, but has to be compatible with torchtuples. Default is None.
         n_epochs : int, optional
             Number of epochs for training the model in each cross fitting fold. Default is 100.
         batch_size : int, optional
@@ -389,6 +394,7 @@ class PyTMLE:
             save_models=save_models,
             models=models,
             labtrans=labtrans,
+            additional_inputs=additional_inputs,
             n_epochs=n_epochs,
             batch_size=batch_size,
         )
