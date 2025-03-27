@@ -100,6 +100,7 @@ class PyTMLE:
         self.step_num = 0
         self.norm_pn_eics = []
         self.models = {}
+        self.state_learner_cv_fit = None
         if evalues_benchmark:
             if initial_estimates is not None and self.verbose >= 1:
                 warnings.warn(
@@ -230,6 +231,7 @@ class PyTMLE:
                 cens_surv_0,
                 model_dict,
                 labtrans,
+                self.state_learner_cv_fit,
             ) = fit_state_learner(
                 X=self._X,
                 trt=self._group,

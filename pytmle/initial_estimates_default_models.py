@@ -4,8 +4,6 @@ from sksurv.ensemble import RandomSurvivalForest
 from typing import List, Tuple
 import warnings
 
-
-
 def get_default_models(
     event_times,
     event_indicator,
@@ -14,7 +12,7 @@ def get_default_models(
     verbose=2,
 ) -> Tuple[List, List, List]:
     """
-    Get the default models for the initial estimates of the hazard functions: CoxPH and DeepHit.
+    Get the default models for the initial estimates of the hazard functions: Vanilla DeepHit, CoxPH, and RandomSurvivalForest.
     """
     risk_models = []
     censoring_models = []

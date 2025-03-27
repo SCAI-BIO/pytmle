@@ -1,4 +1,5 @@
 import numpy as np
+import pandas as pd
 from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier, StackingClassifier
 from sklearn.model_selection import cross_val_predict, StratifiedKFold
@@ -112,6 +113,7 @@ def fit_state_learner(
     Optional[np.ndarray],
     dict,
     Optional[Any],
+    pd.DataFrame,
 ]:
     """
     Fit a version of the state learner (Munch & Gerds, 2024) to estimate the hazard functions for each event type.
@@ -156,7 +158,7 @@ def fit_state_learner(
         The estimated counterfactual hazard functions for each event type,
         the estimated counterfactual survival functions for each event type,
         the estimated counterfactual censoring survival functions for each event type,
-        the fitted models, the label transformer.
+        the fitted models, the label transformer, a dataframe with the losses per model tuple.
     """
     # A time grid for the integrated Brier scores
     time_grid = np.linspace(0, max_time, 100)
@@ -193,6 +195,7 @@ def fit_state_learner(
             "The number of models and label transformers must be the same."
         )
 
+    loss_list = []
     fitted_models_dict = {}
     min_loss = np.inf
     for risks_model, risks_labtrans in zip(risks_models, risks_label_transformers):
@@ -273,6 +276,13 @@ def fit_state_learner(
                 # compute the integrated Brier score including absolute risks
                 loss = abs_risk_integrated_brier_score(chfs, events_by_cause, time_grid)
 
+                loss_list.append(
+                    {
+                        "risks_model": risks_model.__class__.__name__,
+                        "censoring_model": censoring_model.__class__.__name__,
+                        "loss": loss,
+                    }
+                )
                 if verbose >= 3:
                     print(
                         f"({risks_model.__class__.__name__} | {censoring_model.__class__.__name__}): {loss}"
@@ -307,7 +317,7 @@ def fit_state_learner(
                         RuntimeWarning,
                     )
                 continue
-
+    loss_df = pd.DataFrame(loss_list).sort_values(by="loss")
     if return_model:
         return (
             haz_1,
@@ -318,8 +328,19 @@ def fit_state_learner(
             cens_surv_0,
             fitted_models_dict,
             combined_labtrans,
+            loss_df,
         )
-    return haz_1, haz_0, surv_1, surv_0, cens_surv_1, cens_surv_0, {}, combined_labtrans
+    return (
+        haz_1,
+        haz_0,
+        surv_1,
+        surv_0,
+        cens_surv_1,
+        cens_surv_0,
+        {},
+        combined_labtrans,
+        loss_df,
+    )
 
 
 def cross_fit_risk_model(
