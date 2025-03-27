@@ -138,16 +138,21 @@ def bootstrap_tmle_loop(
         DataFrame with bootstrapped confidence intervals.
     """
     with ProcessPoolExecutor(max_workers=n_jobs if n_jobs > 0 else None) as executor:
-        futures = [executor.submit(single_boot, 
-                                   initial_estimates, 
-                                   event_times, 
-                                   event_indicator, 
-                                   target_times,
-                                   target_events, 
-                                   key_1, 
-                                   key_0,
-                                   stratify_by_event,
-                                   **kwargs) for _ in range(n_bootstrap)]
+        futures = [
+            executor.submit(
+                single_boot,
+                initial_estimates,
+                event_times,
+                event_indicator,
+                target_times,
+                target_events,
+                key_1,
+                key_0,
+                stratify_by_event,
+                **kwargs,
+            )
+            for _ in range(n_bootstrap)
+        ]
         results = []
         if verbose >= 2:
             futures_iter = tqdm(

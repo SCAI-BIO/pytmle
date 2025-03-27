@@ -102,7 +102,10 @@ class EvaluesBenchmark:
                 self._observed_covariate_evalue(ci, ci_new)
                 for ci, ci_new in zip(self.rd_full["Limiting bound"], ci_rd)
             ]
-            if full_model._bootstrap_results is not None:
+            if (
+                full_model._bootstrap_results is not None
+                and tmle._bootstrap_results is not None
+            ):
                 ci_rr_bs = np.where(
                     self.rr_full["E_value CI limit (bootstrap)"] == "lower",
                     rr["CI_lower_bootstrap"],
