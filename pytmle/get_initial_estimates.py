@@ -227,102 +227,102 @@ def fit_state_learner(
                         )
 
                 combined_labtrans = CombinedLabtrans(risks_labtrans, censoring_labtrans)
-            # try:
-            # cross-fit the risk and censoring models
-            (
-                surv_1_i,
-                surv_0_i,
-                cens_surv_1_i,
-                cens_surv_0_i,
-                cumhaz_1_i,
-                cumhaz_0_i,
-                cumhaz_f_i,
-                cens_cumhaz_f_i,
-                fitted_models,
-                jumps,
-            ) = cross_fit_risk_model(
-                X=X,
-                trt=trt,
-                event_times=event_times,
-                event_indicator=event_indicator,
-                cv_folds=cv_folds,
-                labtrans=combined_labtrans,
-                risks_model=risks_model,
-                censoring_model=censoring_model,
-                additional_inputs=additional_inputs,
-                n_epochs=n_epochs,
-                batch_size=batch_size,
-                verbose=verbose >= 4,
-            )
-            # Get the counting processes per event type and stack all cumulative hazards
-            grid_mat = np.tile(time_grid, (X.shape[0], 1))
-            event_mat = np.expand_dims(event_times, 1) <= grid_mat
-            chfs_list = []
-            events_by_cause_list = []
-            if fit_risks_model:
-                causes = np.unique(event_indicator[event_indicator != 0])
-                for c in causes:
+            try:
+                # cross-fit the risk and censoring models
+                (
+                    surv_1_i,
+                    surv_0_i,
+                    cens_surv_1_i,
+                    cens_surv_0_i,
+                    cumhaz_1_i,
+                    cumhaz_0_i,
+                    cumhaz_f_i,
+                    cens_cumhaz_f_i,
+                    fitted_models,
+                    jumps,
+                ) = cross_fit_risk_model(
+                    X=X,
+                    trt=trt,
+                    event_times=event_times,
+                    event_indicator=event_indicator,
+                    cv_folds=cv_folds,
+                    labtrans=combined_labtrans,
+                    risks_model=risks_model,
+                    censoring_model=censoring_model,
+                    additional_inputs=additional_inputs,
+                    n_epochs=n_epochs,
+                    batch_size=batch_size,
+                    verbose=verbose >= 4,
+                )
+                # Get the counting processes per event type and stack all cumulative hazards
+                grid_mat = np.tile(time_grid, (X.shape[0], 1))
+                event_mat = np.expand_dims(event_times, 1) <= grid_mat
+                chfs_list = []
+                events_by_cause_list = []
+                if fit_risks_model:
+                    causes = np.unique(event_indicator[event_indicator != 0])
+                    for c in causes:
+                        events_by_cause_list.append(
+                            event_mat * np.expand_dims((event_indicator == c), 1)
+                        )
+                    for i in range(len(events_by_cause_list)):
+                        chfs_list.append(cumhaz_f_i[..., i])  # type: ignore
+                if fit_censoring_model:
                     events_by_cause_list.append(
-                        event_mat * np.expand_dims((event_indicator == c), 1)
+                        event_mat * np.expand_dims((event_indicator == 0), 1)
                     )
-                for i in range(len(events_by_cause_list)):
-                    chfs_list.append(cumhaz_f_i[..., i])  # type: ignore
-            if fit_censoring_model:
-                events_by_cause_list.append(
-                    event_mat * np.expand_dims((event_indicator == 0), 1)
+                    chfs_list.append(cens_cumhaz_f_i[..., 0])
+                chfs = np.stack(chfs_list, axis=-1)
+                events_by_cause = np.stack(events_by_cause_list, axis=-1)
+                # Get cumulative hazards for the time_grid
+                time_grid_indices = np.searchsorted(jumps, time_grid, side="right") - 1
+                time_grid_indices = np.clip(time_grid_indices, 0, len(jumps) - 1)
+                chfs = chfs[:, time_grid_indices, :]
+
+                # compute the integrated Brier score including absolute risks
+                loss = abs_risk_integrated_brier_score(chfs, events_by_cause, time_grid)
+
+                loss_list.append(
+                    {
+                        "risks_model": risks_model.__class__.__name__,
+                        "censoring_model": censoring_model.__class__.__name__,
+                        "loss": loss,
+                    }
                 )
-                chfs_list.append(cens_cumhaz_f_i[..., 0])
-            chfs = np.stack(chfs_list, axis=-1)
-            events_by_cause = np.stack(events_by_cause_list, axis=-1)
-            # Get cumulative hazards for the time_grid
-            time_grid_indices = np.searchsorted(jumps, time_grid, side="right") - 1
-            time_grid_indices = np.clip(time_grid_indices, 0, len(jumps) - 1)
-            chfs = chfs[:, time_grid_indices, :]
+                if verbose >= 3:
+                    print(
+                        f"({risks_model.__class__.__name__} | {censoring_model.__class__.__name__}): {loss}"
+                    )
 
-            # compute the integrated Brier score including absolute risks
-            loss = abs_risk_integrated_brier_score(chfs, events_by_cause, time_grid)
+                if loss < min_loss:
+                    min_loss = loss
+                    if cumhaz_1_i is not None and cumhaz_0_i is not None:
+                        haz_1 = np.diff(cumhaz_1_i, prepend=0, axis=1)
+                        haz_0 = np.diff(cumhaz_0_i, prepend=0, axis=1)
+                        surv_1 = surv_1_i
+                        surv_0 = surv_0_i
+                    else:
+                        haz_1 = None
+                        haz_0 = None
+                        surv_1 = None
+                        surv_0 = None
+                    if cens_surv_1_i is not None and cens_surv_0_i is not None:
+                        cens_surv_1 = cens_surv_1_i
+                        cens_surv_0 = cens_surv_0_i
+                    else:
+                        cens_surv_1 = None
+                        cens_surv_0 = None
+                    if return_model:
+                        fitted_models_dict.update(fitted_models)
 
-            loss_list.append(
-                {
-                    "risks_model": risks_model.__class__.__name__,
-                    "censoring_model": censoring_model.__class__.__name__,
-                    "loss": loss,
-                }
-            )
-            if verbose >= 3:
-                print(
-                    f"({risks_model.__class__.__name__} | {censoring_model.__class__.__name__}): {loss}"
-                )
-
-            if loss < min_loss:
-                min_loss = loss
-                if cumhaz_1_i is not None and cumhaz_0_i is not None:
-                    haz_1 = np.diff(cumhaz_1_i, prepend=0, axis=1)
-                    haz_0 = np.diff(cumhaz_0_i, prepend=0, axis=1)
-                    surv_1 = surv_1_i
-                    surv_0 = surv_0_i
-                else:
-                    haz_1 = None
-                    haz_0 = None
-                    surv_1 = None
-                    surv_0 = None
-                if cens_surv_1_i is not None and cens_surv_0_i is not None:
-                    cens_surv_1 = cens_surv_1_i
-                    cens_surv_0 = cens_surv_0_i
-                else:
-                    cens_surv_1 = None
-                    cens_surv_0 = None
-                if return_model:
-                    fitted_models_dict.update(fitted_models)
-
-            # except Exception as e:
-            #     # If one of the model fails, skip it
-            #     if verbose >= 1:
-            #         warnings.warn(
-            #             f"({risks_model.__class__.__name__} | {censoring_model.__class__.__name__}) failed: {e}",
-            #             RuntimeWarning,
-            #         )
-            #     continue
+            except Exception as e:
+                # If one of the model fails, skip it
+                if verbose >= 1:
+                    warnings.warn(
+                        f"({risks_model.__class__.__name__} | {censoring_model.__class__.__name__}) failed: {e}",
+                        RuntimeWarning,
+                    )
+                continue
     loss_df = pd.DataFrame(loss_list).sort_values(by="loss")
     if return_model:
         return (
