@@ -1,4 +1,4 @@
-import logging
+import warnings
 from copy import deepcopy
 import numpy as np
 import pandas as pd
@@ -6,14 +6,16 @@ import matplotlib.pyplot as plt
 from scipy.stats import norm
 from typing import Generator, List, Tuple
 
-logger = logging.getLogger(__name__)
-
 class EvaluesBenchmark:
     """
     Class to compute observed covariate E-values like proposed by McGowan and Greevy (2020) (https://arxiv.org/pdf/2011.07030).
     """
 
-    def __init__(self, model=None):
+    def __init__(
+        self,
+        model=None,
+        verbose=2,
+    ):
         if model is not None:
             self.model = deepcopy(model)
             # set to None to avoid infinite recursion
@@ -23,8 +25,15 @@ class EvaluesBenchmark:
         else:
             self.skip_benchmark = True
         self.benchmarking_results = None
+        self.verbose = verbose
 
-    def benchmark(self, full_model, max_updates: int = 100, alpha: float = 0.05, **kwargs):
+    def benchmark(
+        self,
+        full_model,
+        max_updates: int = 100,
+        alpha: float = 0.05,
+        **kwargs,
+    ):
         self.rr_full = full_model.predict("ratio", alpha=alpha)
         self.rd_full = full_model.predict("diff", alpha=alpha)
         self.rr_full["Limiting bound"] = np.where(self.rr_full["E_value CI limit"]=="lower", self.rr_full["CI_lower"], self.rr_full["CI_upper"])
@@ -55,14 +64,18 @@ class EvaluesBenchmark:
             )
         if self.skip_benchmark:
             return
-        if max_updates > 100:
-            logger.warning(
-                f"Running E-values benchmark can take a long time because a PyTMLE model is fitted with up to {max_updates} for each of {len(self.benchmark_features)} features. Consider reducing the max_updates."
+        if max_updates > 100 and self.verbose >= 1:
+            warnings.warn(
+                f"Running E-values benchmark can take a long time because a PyTMLE model is fitted with up to {max_updates} for each of {len(self.benchmark_features)} features. Consider reducing the max_updates.",
+                RuntimeWarning,
             )
         evalues_df_list = []
         for i, f in enumerate(self.benchmark_features):
-            logger.info(f"Computing E-Value benchmark for {f}...")
+            if self.verbose >= 2:
+                print(f"Computing E-Value benchmark for {f}...")
             tmle = deepcopy(self.model)
+            # print less for each E-value benchmark model
+            tmle.verbose = self.verbose - 1 if self.verbose < 4 else self.verbose
             # feature is not dropped but set to np.nan for model-specific handling
             tmle._X[:, i] = np.nan
             tmle.fit(max_updates=max_updates, **kwargs)
@@ -72,8 +85,8 @@ class EvaluesBenchmark:
             rr["benchmark_feature"] = f
             ci_rr = np.where(self.rr_full["E_value CI limit"]=="lower", rr["CI_lower"], rr["CI_upper"])
             rr["E_value measured"] = [
-                self._observed_covariate_evalue(ci, ci_new) 
-                for ci, ci_new in zip( self.rr_full["Limiting bound"], ci_rr)
+                self._observed_covariate_evalue(ci, ci_new)
+                for ci, ci_new in zip(self.rr_full["Limiting bound"], ci_rr)
             ]
             # get diff estimates for the benchmark model
             rd = tmle.predict("diff")
@@ -144,7 +157,7 @@ class EvaluesBenchmark:
 
     def _observed_covariate_evalue(self, ci, new_ci):
         """
-        Compute the E-value for the observed covariate as proposed 
+        Compute the E-value for the observed covariate as proposed
         by McGowan and Greevy (2020).
 
         Args:
@@ -153,7 +166,11 @@ class EvaluesBenchmark:
         """
         # lower CIs < 0 can occur but should be ignored for the E-value calculation
         if ci <= 0 or new_ci <= 0:
-            logger.warning("Observed E-values are not defined for non-positive limiting bounds.")
+            if self.verbose >= 1:
+                warnings.warn(
+                    "Observed E-values are not defined for non-positive limiting bounds.",
+                    RuntimeWarning,
+                )
             return np.nan
         if ci < 1:
             ci = 1 / ci
@@ -254,13 +271,15 @@ class EvaluesBenchmark:
 
         if self.benchmarking_results is not None:
             is_na = benchmark_df[evalue_measured_key].isna()
-            if all(is_na):
-                logger.warning(
-                    "No observed E-values available for the benchmarking features."
+            if all(is_na) and self.verbose >= 1:
+                warnings.warn(
+                    "No observed E-values available for the benchmarking features.",
+                    RuntimeWarning,
                 )
-            elif sum(is_na) > 0:
-                logger.warning(
-                    f"Observed E-values are not available for {sum(is_na)} out of {len(is_na)} features."
+            elif sum(is_na) > 0 and self.verbose >= 1:
+                warnings.warn(
+                    f"Observed E-values are not available for {sum(is_na)} out of {len(is_na)} features.",
+                    RuntimeWarning,
                 )
             benchmark_df = benchmark_df.fillna(0)
             xy_limit = max(eval_est, np.max(benchmark_df[evalue_measured_key])) * 2
@@ -275,10 +294,14 @@ class EvaluesBenchmark:
                            xy_limit)
 
         eval_ci = full_df[evalue_ci_key].item()
-        if eval_ci is None:
-            logger.info("Plotting contour for point estimate only. Confidence interval is not available.")
-        elif eval_ci==1:
-            logger.info("Plotting contour for point estimate only. Confidence interval is already tipped.")
+        if eval_ci is None and self.verbose >= 2:
+            print(
+                "Plotting contour for point estimate only. Confidence interval is not available."
+            )
+        elif eval_ci == 1 and self.verbose >= 2:
+            print(
+                "Plotting contour for point estimate only. Confidence interval is already tipped."
+            )
         else:
             rr_ci = full_df[limiting_bound_key].item()
             if rr_ci < 1:

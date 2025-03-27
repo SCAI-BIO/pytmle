@@ -1,3 +1,10 @@
+import os
+import warnings
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+from typing import Optional, List, Dict, Tuple
+
 from .estimates import InitialEstimates
 from .get_initial_estimates import fit_propensity_super_learner, fit_state_learner
 from .tmle_update import tmle_update
@@ -9,16 +16,6 @@ from .predict_ate import (
 from .evalues_benchmark import EvaluesBenchmark
 from .plotting import plot_risks, plot_ate, plot_nuisance_weights
 from .bootstrap import bootstrap_tmle_loop
-
-import os
-import logging
-import numpy as np
-import pandas as pd
-import matplotlib.pyplot as plt
-from typing import Optional, List, Dict, Tuple
-
-logger = logging.getLogger(__name__)
-logging.basicConfig(level=logging.INFO)
 
 class PyTMLE:
 
@@ -34,7 +31,7 @@ class PyTMLE:
         key_1: int = 1,
         key_0: int = 0,
         initial_estimates: Optional[Dict[int, InitialEstimates]] = None,
-        verbose: bool = True,
+        verbose: int = 2,
     ):
         """
         Initialize the PyTMLE model.
@@ -61,8 +58,8 @@ class PyTMLE:
             The key representing the control group. Default is 0.
         initial_estimates : Optional[Dict[int, InitialEstimates]], optional
             Dict with pre-computed initial estimates for the two potential outcomes. Default is None.
-        verbose : bool, optional
-            Whether to print verbose output. Default is True.
+        verbose : int, optional
+            Verbosity level. 0: Absolutely so logging at all, 1: only warnings, 2: major execution steps, 3: execution steps, 4: everything for debugging. Default is 2.
         """
         self._check_inputs(
             data,
@@ -104,13 +101,16 @@ class PyTMLE:
         self.norm_pn_eics = []
         self.models = {}
         if evalues_benchmark:
-            if initial_estimates is not None:
-                logger.warning(
-                     "E-values benchmark for measured covariates may be incorrect if pre-computed initial estimates are provided because the measured covariates need to be dropped during model fitting."
+            if initial_estimates is not None and self.verbose >= 1:
+                warnings.warn(
+                    "E-values benchmark for measured covariates may be incorrect "
+                    "if pre-computed initial estimates are provided because "
+                    "the measured covariates need to be dropped during model fitting.",
+                    RuntimeWarning,
                 )
-            self.evalues_benchmark = EvaluesBenchmark(self)
+            self.evalues_benchmark = EvaluesBenchmark(self, verbose=self.verbose)
         else:
-            self.evalues_benchmark = EvaluesBenchmark()
+            self.evalues_benchmark = EvaluesBenchmark(verbose=self.verbose)
 
     def _check_inputs(
         self,
@@ -161,48 +161,65 @@ class PyTMLE:
         save_models: bool,
     ):
         if self._initial_estimates is None:
-            self._initial_estimates = {self.key_1:
-                                       InitialEstimates(g_star_obs = self._group,
-                                                        times=np.unique(self._event_times)),
-                                        self.key_0:
-                                        InitialEstimates(g_star_obs = 1 - self._group,
-                                                        times=np.unique(self._event_times)),
-                                        }
+            self._initial_estimates = {
+                self.key_1: InitialEstimates(
+                    g_star_obs=self._group, times=np.unique(self._event_times)
+                ),
+                self.key_0: InitialEstimates(
+                    g_star_obs=1 - self._group, times=np.unique(self._event_times)
+                ),
+            }
 
-        if (self._initial_estimates[self.key_1].propensity_scores is None or 
-            self._initial_estimates[self.key_0].propensity_scores is None):
-            logger.info("Estimating propensity scores...")
+        if (
+            self._initial_estimates[self.key_1].propensity_scores is None
+            or self._initial_estimates[self.key_0].propensity_scores is None
+        ):
+            if self.verbose >= 2:
+                print("Estimating propensity scores...")
             propensity_scores_1, propensity_scores_0, model_dict = (
                 fit_propensity_super_learner(
                     X=self._X,
                     y=self._group,
                     cv_folds=cv_folds,
                     return_model=save_models,
+                    verbose=self.verbose >= 4,
                 )
             )
             self.models.update(model_dict)
             self._initial_estimates[self.key_1].propensity_scores = propensity_scores_1
             self._initial_estimates[self.key_0].propensity_scores = propensity_scores_0
         else:
-            logger.info("Using given propensity score estimates")
-        if (self._initial_estimates[self.key_1].hazards is None or 
-            self._initial_estimates[self.key_0].hazards is None or
-            self._initial_estimates[self.key_1].event_free_survival_function is None or 
-            self._initial_estimates[self.key_0].event_free_survival_function is None):
-            logger.info("Estimating hazards and event-free survival...")
+            if self.verbose >= 2:
+                print("Using given propensity score estimates")
+
+        hazards_missing = (
+            self._initial_estimates[self.key_1].hazards is None
+            or self._initial_estimates[self.key_0].hazards is None
+            or self._initial_estimates[self.key_1].event_free_survival_function is None
+            or self._initial_estimates[self.key_0].event_free_survival_function is None
+        )
+        if hazards_missing:
+            if self.verbose >= 2:
+                print("Estimating hazards and event-free survival...")
             fit_risks_model = True
         else:
-            logger.info("Using given hazard and event-free survival estimates")
+            if self.verbose >= 2:
+                print("Using given hazard and event-free survival estimates")
             fit_risks_model = False
-        if (
+
+        cens_missing = (
             self._initial_estimates[self.key_1].censoring_survival_function is None
             or self._initial_estimates[self.key_0].censoring_survival_function is None
-        ):
-            logger.info("Estimating censoring survival...")
+        )
+        if cens_missing:
+            if self.verbose >= 2:
+                print("Estimating censoring survival...")
             fit_censoring_model = True
         else:
-            logger.info("Using given censoring survival estimates")
+            if self.verbose >= 2:
+                print("Using given censoring survival estimates")
             fit_censoring_model = False
+
         if fit_risks_model or fit_censoring_model:
             (
                 hazards_1,
@@ -271,8 +288,8 @@ class PyTMLE:
         assert self._initial_estimates is not None, "Initial estimates have to be available before calling _update_estimates()."
         for k in self._initial_estimates:
             assert self._initial_estimates[k] is not None, "Initial estimates have to be available before calling _update_estimates()."
-
-        logger.info("Starting TMLE update loop...")
+        if self.verbose >= 2:
+            print("Starting TMLE update loop...")
         if bootstrap:
             self._bootstrap_results = bootstrap_tmle_loop(
                 self._initial_estimates,
@@ -288,6 +305,7 @@ class PyTMLE:
                 one_step_eps=one_step_eps,
                 key_1=self.key_1,
                 key_0=self.key_0,
+                verbose=self.verbose,
             )
         (
             self._updated_estimates,
@@ -445,7 +463,7 @@ class PyTMLE:
                 key_0=self.key_0,
                 bootstrap_results=self._bootstrap_results,
             )
-        else: 
+        else:
             raise ValueError(
                 f"Only 'risks', 'ratio' and 'diff' are supported as type, got {type}."
             )
@@ -502,7 +520,7 @@ class PyTMLE:
                 color_0=color_0,
                 use_bootstrap=use_bootstrap,
             )
-        elif type == "ratio" or type == "diff":
+        elif type in ("ratio", "diff"):
             pred = self.predict(type=type, alpha=alpha)
             if g_comp:
                 pred_g_comp = self.predict(type=type, alpha=alpha, g_comp=True)
@@ -512,7 +530,7 @@ class PyTMLE:
                 type=type,
                 use_bootstrap=use_bootstrap,
             )
-        else: 
+        else:
             raise ValueError(f"Only 'risks', 'ratio' and 'diff' are supported as type, got {type}.")
 
         if save_path is not None:
@@ -557,9 +575,7 @@ class PyTMLE:
             target_times=target_times,
             times=self._updated_estimates[self.key_1].times,  # type: ignore
             min_nuisance=self._updated_estimates[self.key_1].min_nuisance,  # type: ignore
-            nuisance_weights=self._updated_estimates[
-                self.key_1
-            ].nuisance_weight,  # type: ignore
+            nuisance_weights=self._updated_estimates[self.key_1].nuisance_weight,  # type: ignore
             g_star_obs=self._updated_estimates[self.key_1].g_star_obs,
             plot_size=plot_size,
             color_1=color_1,

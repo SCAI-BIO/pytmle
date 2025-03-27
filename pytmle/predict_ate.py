@@ -4,9 +4,6 @@ import pandas as pd
 
 from pytmle.estimates import UpdatedEstimates
 from scipy.stats import norm
-import logging
-
-logger = logging.getLogger(__name__)
 
 
 def get_counterfactual_risks(

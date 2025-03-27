@@ -2,9 +2,6 @@ import pandas as pd
 import numpy as np
 from copy import deepcopy
 from sksurv.util import Surv
-import logging
-
-logger = logging.getLogger(__name__)
 
 
 class PycoxWrapper:

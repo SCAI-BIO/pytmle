@@ -1,5 +1,5 @@
 from typing import Dict, List, Optional
-import logging
+import warnings
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
@@ -9,7 +9,6 @@ from pytmle.tmle_update import tmle_update
 from pytmle.predict_ate import get_counterfactual_risks, ate_ratio, ate_diff
 from pytmle.estimates import InitialEstimates
 
-logger = logging.getLogger(__name__)
 
 def standard_bootstrap(event_indicator):
     return np.random.choice(len(event_indicator), 
@@ -39,12 +38,10 @@ def single_boot(initial_estimates,
     """
     Perform a single bootstrap sample and call tmle_update.
 
-    As pointed out by Coyle & van der Laan (2018; https://link.springer.com/chapter/10.1007/978-3-319-65304-4_28) 
+    As pointed out by Coyle & van der Laan (2018; https://link.springer.com/chapter/10.1007/978-3-319-65304-4_28)
     and Tran et al. (2023; https://www.degruyter.com/document/doi/10.1515/jci-2021-0067/html?srsltid=AfmBOopT0k3YNof6ON7IWkEv49nuaK_bqgd_bCL8GSyYvmUNBDoGavDG),
     only the second stage of TMLE should be bootstrapped, not the first stage
     """
-    # deactivate logging in the bootstrapping loop
-    logging.disable(logging.CRITICAL)
     # Create a bootstrap sample of indices
     if stratify_by_event:
         sample_indices = stratified_bootstrap(event_indicator)
@@ -64,7 +61,8 @@ def single_boot(initial_estimates,
         event_indicator=boot_event_indicator,
         target_times=target_times,
         target_events=target_events,
-        **kwargs
+        verbose=0,
+        **kwargs,
     )
     if not converged:
         # if tmle_update did not converge, return None
@@ -86,6 +84,7 @@ def single_boot(initial_estimates,
     result_df = pd.concat([cf_risks, ate_ratios, ate_diffs])
     return result_df
 
+
 def bootstrap_tmle_loop(
     initial_estimates: Dict[int, InitialEstimates],
     event_times: np.ndarray,
@@ -95,10 +94,11 @@ def bootstrap_tmle_loop(
     n_bootstrap: int = 100,
     n_jobs: int = -1,
     alpha: float = 0.05,
-    key_1: int  = 1, 
+    key_1: int = 1,
     key_0: int = 0,
     stratify_by_event: bool = False,
-    **kwargs
+    verbose: int = 2,
+    **kwargs,
 ) -> Optional[pd.DataFrame]:
     """
     Perform parallel bootstrapping and call tmle_update on each sample.
@@ -127,6 +127,8 @@ def bootstrap_tmle_loop(
         Key for group 0.
     stratify_by_event: bool
         Stratify bootstrapping by event indicator.
+    verbose: int
+        Verbosity level.
     kwargs
         Additional arguments to pass to tmle_update.
 
@@ -147,14 +149,27 @@ def bootstrap_tmle_loop(
                                    stratify_by_event,
                                    **kwargs) for _ in range(n_bootstrap)]
         results = []
-        for f in tqdm(as_completed(futures), total=n_bootstrap, desc="Bootstrapping"):
+        if verbose >= 2:
+            futures_iter = tqdm(
+                as_completed(futures), total=n_bootstrap, desc="Bootstrapping"
+            )
+        else:
+            futures_iter = as_completed(futures)
+        for f in futures_iter:
             result = f.result()
             if result is not None:
                 results.append(result)
     if len(results) == 0:
-        logger.warning("Not a single bootstrap samples converged. Bootstrapped CIs will not be available.")
+        if verbose >= 1:
+            warnings.warn(
+                "Not a single bootstrap samples converged. Bootstrapped CIs will not be available.",
+                RuntimeWarning,
+            )
         return None
-    logger.info(f"TMLE converged for {len(results)} out of {n_bootstrap} bootstrap samples.")
+    if verbose >= 2:
+        print(
+            f"TMLE converged for {len(results)} out of {n_bootstrap} bootstrap samples."
+        )
     results_df = pd.concat(results)
     summary_df = (
         results_df.groupby(["type", "Event", "Time", "Group"])["Pt Est"]

@@ -4,20 +4,14 @@ from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier,
 from sklearn.model_selection import cross_val_predict, StratifiedKFold
 from typing import Tuple, Optional, Any
 from copy import deepcopy
-import logging
+import warnings
 
 from .pycox_wrapper import PycoxWrapper, PycoxWrapperCauseSpecific
 from .initial_estimates_default_models import get_default_models
 
 
-logger = logging.getLogger(__name__)
-
-
 def fit_propensity_super_learner(
-    X: np.ndarray,
-    y: np.ndarray,
-    cv_folds: int,
-    return_model: bool,
+    X: np.ndarray, y: np.ndarray, cv_folds: int, return_model: bool, verbose: int
 ) -> Tuple[np.ndarray, np.ndarray, dict]:
     """
     Fit a stacking classifier to estimate the propensity scores.
@@ -32,6 +26,8 @@ def fit_propensity_super_learner(
         The number of cross-validation folds.
     return_model : bool
         Whether to return the fitted model.
+    verbose: bool
+        If true, will set verbosity to maximum level.
 
     Returns
     -------
@@ -49,6 +45,7 @@ def fit_propensity_super_learner(
         estimators=base_learners,
         final_estimator=LogisticRegression(max_iter=1000),
         cv=cv_folds,
+        verbose=10 if verbose else 0,
     )
 
     # Use cross_val_predict to generate out-of-fold predictions
@@ -58,6 +55,7 @@ def fit_propensity_super_learner(
         y,
         cv=cv_folds,
         method="predict_proba",
+        verbose=10 if verbose else 0,
     )
     if return_model:
         return pred[:, 1], pred[:, 0], {"propensity_model": super_learner}
@@ -104,7 +102,7 @@ def fit_state_learner(
     batch_size: int = 128,
     fit_risks_model: bool = True,
     fit_censoring_model: bool = True,
-    verbose: bool = False,
+    verbose: int = 2,
 ) -> Tuple[
     Optional[np.ndarray],
     Optional[np.ndarray],
@@ -149,8 +147,8 @@ def fit_state_learner(
         Whether to fit the risk model.
     fit_censoring_model : bool
         Whether to fit the censoring model.
-    verbose : bool
-        Whether to print the loss of all individual risks / censoring model combinations.
+    verbose : int
+        Verbosity level. 0: Absolutely so logging at all, 1: only warnings, 2: major execution steps, 3: execution steps, 4: everything for debugging. Default is 2.
 
     Returns
     -------
@@ -168,6 +166,7 @@ def fit_state_learner(
             event_times=event_times,
             event_indicator=event_indicator,
             input_size=X.shape[1] + 1,  # number of covariateses + treatment
+            verbose=verbose,
         )
         if not fit_risks_model:
             risks_models = [None]
@@ -244,6 +243,7 @@ def fit_state_learner(
                     censoring_model=censoring_model,
                     n_epochs=n_epochs,
                     batch_size=batch_size,
+                    verbose=verbose >= 4,
                 )
                 # Get the counting processes per event type and stack all cumulative hazards
                 grid_mat = np.tile(time_grid, (X.shape[0], 1))
@@ -273,8 +273,8 @@ def fit_state_learner(
                 # compute the integrated Brier score including absolute risks
                 loss = abs_risk_integrated_brier_score(chfs, events_by_cause, time_grid)
 
-                if verbose:
-                    logger.info(
+                if verbose >= 3:
+                    print(
                         f"({risks_model.__class__.__name__} | {censoring_model.__class__.__name__}): {loss}"
                     )
 
@@ -301,9 +301,10 @@ def fit_state_learner(
 
             except Exception as e:
                 # If one of the model fails, skip it
-                if verbose:
-                    logger.warning(
-                        f"({risks_model.__class__.__name__} | {censoring_model.__class__.__name__}) failed: {e}"
+                if verbose >= 1:
+                    warnings.warn(
+                        f"({risks_model.__class__.__name__} | {censoring_model.__class__.__name__}) failed: {e}",
+                        RuntimeWarning,
                     )
                 continue
 
@@ -332,6 +333,7 @@ def cross_fit_risk_model(
     censoring_model,
     n_epochs: int,
     batch_size: int,
+    verbose: bool,
 ):
     num_risks = len(np.unique(event_indicator)) - 1  # subtract 1 for censoring
 
@@ -364,6 +366,9 @@ def cross_fit_risk_model(
         # factual
         X_val_f = np.column_stack((trt_val, X_val)).astype(np.float32)
 
+        if verbose == 0:
+            warnings.simplefilter("ignore")
+
         if risks_model is not None:
             if len(np.unique(event_times)) <= 2 or hasattr(risks_model, "predict_cif"):
                 model_i = PycoxWrapper(
@@ -374,9 +379,10 @@ def cross_fit_risk_model(
                     input_size=X.shape[1] + 1,
                 )
             else:
-                logger.debug(
-                    f"Fitting cause-specific model because {risks_model.__class__.__name__} does not support CIF."
-                )
+                if verbose:
+                    print(
+                        f"Fitting cause-specific model because {risks_model.__class__.__name__} does not support CIF."
+                    )
                 model_i = PycoxWrapperCauseSpecific(
                     deepcopy(risks_model),
                     labtrans=labtrans,
@@ -394,7 +400,7 @@ def cross_fit_risk_model(
                 labels,
                 batch_size=batch_size,
                 epochs=n_epochs,
-                verbose=False,
+                verbose=verbose,
             )  # type: ignore
             models[f"risks_model_fold_{i}"] = model_i
 
@@ -421,7 +427,7 @@ def cross_fit_risk_model(
                 labels,
                 batch_size=batch_size,
                 epochs=n_epochs,
-                verbose=False,
+                verbose=verbose,
             )  # type: ignore
             models[f"censoring_model_fold_{i}"] = model_i_censoring
 
