@@ -22,3 +22,6 @@ dev = [
 
 [tool.uv.sources]
 pycox = { git = "https://github.com/pooya-mohammadi/pycox" }
+
+[tool.setuptools]
+packages = ["pytmle"]
