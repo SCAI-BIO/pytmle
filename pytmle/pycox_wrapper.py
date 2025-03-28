@@ -153,12 +153,15 @@ class PycoxWrapper:
             # pycox with competing risks (e.g., DeepHit)
             input = self._handle_all_missing_columns(input, "zero")
             surv = self.predict_surv(input, additional_inputs)
+            lagged_surv = np.column_stack([np.ones((surv.shape[0], 1)), surv[:, :-1]])
             if additional_inputs is not None:
                 input = (input,) + additional_inputs  # type: ignore
             cif = self.wrapped_model.predict_cif(input).swapaxes(0, 2)
-            surv_expanded = surv[..., np.newaxis]
-            surv_expanded = np.repeat(surv_expanded, cif.shape[-1], axis=-1)
-            haz = np.diff(cif, prepend=0, axis=1) / surv_expanded
+            lagged_surv_expanded = lagged_surv[..., np.newaxis]
+            lagged_surv_expanded = np.repeat(
+                lagged_surv_expanded, cif.shape[-1], axis=-1
+            )
+            haz = np.diff(cif, prepend=0, axis=1) / lagged_surv_expanded
             cum_haz = np.cumsum(haz, axis=1)
             if cum_haz.shape[2] > len(np.unique(self.all_events)) - 1:
                 raise RuntimeError(
