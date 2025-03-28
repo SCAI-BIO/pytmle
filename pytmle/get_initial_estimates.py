@@ -102,8 +102,8 @@ def fit_state_learner(
     max_time: float,
     n_epochs: int = 100,
     batch_size: int = 128,
-    fit_risks_model: bool = True,
-    fit_censoring_model: bool = True,
+    precomputed_event_free_survival: Optional[np.ndarray] = None,
+    precomputed_censoring_survival: Optional[np.ndarray] = None,
     verbose: int = 2,
 ) -> Tuple[
     Optional[np.ndarray],
@@ -150,10 +150,10 @@ def fit_state_learner(
         The number of epochs.
     batch_size : int
         The batch size.
-    fit_risks_model : bool
-        Whether to fit the risk model.
-    fit_censoring_model : bool
-        Whether to fit the censoring model.
+    precomputed_event_free_survival : np.ndarray
+        Precomputed event-free survival functions. Default is None.
+    precomputed_censoring_survival : np.ndarray
+        Precomputed censoring survival functions. Default is None.
     verbose : int
         Verbosity level. 0: Absolutely so logging at all, 1: only warnings, 2: major execution steps, 3: execution steps, 4: everything for debugging. Default is 2.
 
@@ -165,6 +165,8 @@ def fit_state_learner(
         the estimated counterfactual censoring survival functions for each event type,
         the fitted models, the label transformer, a dataframe with the losses per model tuple.
     """
+    fit_risks_model = precomputed_event_free_survival is None
+    fit_censoring_model = precomputed_censoring_survival is None
     # A time grid for the integrated Brier scores
     time_grid = np.linspace(0, max_time, 100)
     # If no models are provided, use the default models
@@ -188,7 +190,7 @@ def fit_state_learner(
             censoring_models = models if fit_censoring_model else [None]
     if not isinstance(labtrans, list):
         if labtrans is None:
-            labtrans = [None] * len(risks_models)
+            labtrans = [None] * len(models)
         else:
             labtrans = [labtrans]
     risks_label_transformers = labtrans if fit_risks_model else [None]
@@ -267,12 +269,26 @@ def fit_state_learner(
                         )
                     for i in range(len(events_by_cause_list)):
                         chfs_list.append(cumhaz_f_i[..., i])  # type: ignore
-                if fit_censoring_model:
+                else:
+                    # precomputed event-free survival enters the loss if given
                     events_by_cause_list.append(
-                        event_mat * np.expand_dims((event_indicator == 0), 1)
+                        event_mat * np.expand_dims((event_indicator > 0), 1)
                     )
+                    chfs_list.append(-np.log(precomputed_event_free_survival))
+                events_by_cause_list.append(
+                    event_mat * np.expand_dims((event_indicator == 0), 1)
+                )
+                if fit_censoring_model:
                     chfs_list.append(cens_cumhaz_f_i[..., 0])
-                chfs = np.stack(chfs_list, axis=-1)
+                else:
+                    # precomputed censoring survival enters the loss if given
+                    chfs_list.append(-np.log(precomputed_censoring_survival))
+                try:
+                    chfs = np.stack(chfs_list, axis=-1)
+                except ValueError:
+                    raise ValueError(
+                        "The cumulative hazards have different shapes. This could be due to label transformation in one of the models."
+                    )
                 events_by_cause = np.stack(events_by_cause_list, axis=-1)
                 # Get cumulative hazards for the time_grid
                 time_grid_indices = np.searchsorted(jumps, time_grid, side="right") - 1

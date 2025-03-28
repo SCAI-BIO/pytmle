@@ -203,10 +203,16 @@ class PyTMLE:
         if hazards_missing:
             if self.verbose >= 2:
                 print("Estimating hazards and event-free survival...")
+            factual_event_free_survival = None
             fit_risks_model = True
         else:
             if self.verbose >= 2:
                 print("Using given hazard and event-free survival estimates")
+            factual_event_free_survival = np.where(
+                np.expand_dims(self._group, 1) == 1,
+                self._initial_estimates[self.key_1].event_free_survival_function,  # type: ignore
+                self._initial_estimates[self.key_0].event_free_survival_function,  # type: ignore
+            )
             fit_risks_model = False
 
         cens_missing = (
@@ -216,10 +222,16 @@ class PyTMLE:
         if cens_missing:
             if self.verbose >= 2:
                 print("Estimating censoring survival...")
+            factual_censoring_survival = None
             fit_censoring_model = True
         else:
             if self.verbose >= 2:
                 print("Using given censoring survival estimates")
+            factual_censoring_survival = np.where(
+                np.expand_dims(self._group, 1) == 1,
+                self._initial_estimates[self.key_1].censoring_survival_function,  # type: ignore
+                self._initial_estimates[self.key_0].censoring_survival_function,  # type: ignore
+            )
             fit_censoring_model = False
 
         if fit_risks_model or fit_censoring_model:
@@ -246,8 +258,8 @@ class PyTMLE:
                 max_time=max(self.target_times),
                 n_epochs=n_epochs,
                 batch_size=batch_size,
-                fit_risks_model=fit_risks_model,
-                fit_censoring_model=fit_censoring_model,
+                precomputed_event_free_survival=factual_event_free_survival,
+                precomputed_censoring_survival=factual_censoring_survival,
                 verbose=self.verbose,
             )
             self.models.update(model_dict)
