@@ -75,9 +75,16 @@ def update_hazards(
     """
     updated_hazards = np.zeros_like(hazards)
 
+    # survival function needs to lagged for CIF calculation
+    lagged_total_surv = np.column_stack(
+        [
+            np.ones((total_surv.shape[0], 1)),
+            total_surv[:, :-1],
+        ],
+    )
+
     for l in range(1, hazards.shape[-1] + 1):
         if l not in target_event:
-            # TODO: Check if it is correct to not update non-target hazards (in concrete, all events other than censoring are automatically made target events: https://github.com/imbroglio-dc/concrete/blob/main/R/formatArguments.R#L567)
             continue
         # Initialize the update term
         update_term = np.zeros_like(hazards[..., l - 1])
@@ -85,7 +92,7 @@ def update_hazards(
 
         for j in target_event:
             # Compute F.j.t for the current event type
-            f_j_t = np.cumsum(hazards[..., j - 1] * total_surv, axis=1)
+            f_j_t = np.cumsum(hazards[..., j - 1] * lagged_total_surv, axis=1)
             for tau in target_time:
                 # Initialize matrices for clever covariate computation
                 h_fs = np.zeros_like(f_j_t)

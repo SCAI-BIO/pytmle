@@ -68,13 +68,7 @@ def test_predict(mock_main_class_inputs, get_model):
     model = eval(get_model)()
     df = mock_main_class_inputs["data"]
 
-    if get_model != "default":
-        # No support for competing risks for any model except DeepHit
-        df["event_indicator"] = (df["event_indicator"] == 1).astype(int)
-
     # only use a subset to check that the output times are correct
-    all_times = df["event_time"].values
-    all_events = df["event_indicator"].values
     df = df[:100]
 
     X = df[["group", "x1", "x2", "x3"]].astype(np.float32)
@@ -98,11 +92,11 @@ def test_predict(mock_main_class_inputs, get_model):
     wrapper.fit(X.values, (y["event_time"].values, y["event_indicator"].values))
 
     # predict survival function
-    surv = wrapper.predict_surv(X[:25].values)
+    surv = wrapper.predict_surv(X[:25].values, additional_inputs=None)
     assert surv.shape[0] == 25
     assert surv.shape[1] == len(wrapper.jumps)
 
     # predict hazard function
-    haz = wrapper.predict_cumhaz(X[:25].values)
+    haz = wrapper.predict_cumhaz(X[:25].values, additional_inputs=None)
     assert haz.shape[0] == 25
     assert haz.shape[1] == len(wrapper.jumps)

@@ -110,8 +110,14 @@ class UpdatedEstimates(InitialEstimates):
         self._set_nuisance_weight()
 
     def _set_nuisance_weight(self):
+        lagged_censoring_survival_function = np.column_stack(
+            [
+                np.ones((self.censoring_survival_function.shape[0], 1)),
+                self.censoring_survival_function[:, :-1],
+            ],
+        )
         nuisance_denominator = (
-            self.propensity_scores[:, np.newaxis] * self.censoring_survival_function
+            self.propensity_scores[:, np.newaxis] * lagged_censoring_survival_function
         )
         # TODO: Add positivity check as in https://github.com/imbroglio-dc/concrete/blob/main/R/getInitialEstimate.R#L64?
         self.nuisance_weight = 1 / np.maximum(nuisance_denominator, self.min_nuisance)  # type: ignore

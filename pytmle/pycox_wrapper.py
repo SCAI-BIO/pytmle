@@ -156,7 +156,7 @@ class PycoxWrapper:
             if additional_inputs is not None:
                 input = (input,) + additional_inputs  # type: ignore
             cif = self.wrapped_model.predict_cif(input).swapaxes(0, 2)
-            surv_expanded = np.expand_dims(surv, axis=-1)
+            surv_expanded = surv[..., np.newaxis]
             surv_expanded = np.repeat(surv_expanded, cif.shape[-1], axis=-1)
             haz = np.diff(cif, prepend=0, axis=1) / surv_expanded
             cum_haz = np.cumsum(haz, axis=1)
@@ -173,7 +173,7 @@ class PycoxWrapper:
             if cum_haz.shape[1] == len(input):
                 cum_haz = cum_haz.T
             if len(cum_haz.shape) == 2:
-                cum_haz = np.expand_dims(cum_haz, -1)
+                cum_haz = cum_haz[..., np.newaxis]
         elif hasattr(self.wrapped_model, 'predict_cumulative_hazard_function'):
             # scikit-survival
             input = self._handle_all_missing_columns(input, "remove")
@@ -181,7 +181,7 @@ class PycoxWrapper:
             if cum_haz.shape[1] == len(input):
                 cum_haz = cum_haz.T
             if len(cum_haz.shape) == 2:
-                cum_haz = np.expand_dims(cum_haz, -1)
+                cum_haz = cum_haz[..., np.newaxis]
         else:
             raise ValueError("Model has no method to predict cumulative hazards or CIF.")
 
@@ -206,7 +206,7 @@ class PycoxWrapperCauseSpecific(PycoxWrapper):
         self.wrapped_model = {}
         for i in np.unique(all_events):
             if i != 0:
-                self.wrapped_model[i] = deepcopy(wrapped_model)
+                self.wrapped_model[int(i)] = deepcopy(wrapped_model)
 
     def __str__(self):
         return f"CauseSpecific{type(self.wrapped_model[1]).__name__}"
@@ -218,7 +218,7 @@ class PycoxWrapperCauseSpecific(PycoxWrapper):
         self,
         input: np.ndarray,
         target: np.ndarray,
-        additional_inputs: Optional[Tuple[np.ndarray]],
+        additional_inputs: Optional[Tuple[np.ndarray]] = None,
         **kwargs,
     ):
         if self.labtrans is not None:

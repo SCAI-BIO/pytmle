@@ -98,11 +98,18 @@ def get_ic(
 
     eval_times = np.array(eval_times)  # Ensure eval_times is a numpy array
 
+    # survival function needs to lagged for CIF calculation
+    lagged_total_surv = np.column_stack(
+        [
+            np.ones((total_surv.shape[0], 1)),
+            total_surv[:, :-1],
+        ],
+    )
     for j in target_events:
         # Calculate the cumulative incidence function for the current event
         # print("hazards[j] \n", hazards[j].shape)
-        # print("total_surv \n", total_surv.shape)
-        f_j_t = np.cumsum(hazards[..., j - 1] * total_surv, axis=1)
+        # print("lagged_total_surv \n", lagged_total_surv.shape)
+        f_j_t = np.cumsum(hazards[..., j - 1] * lagged_total_surv, axis=1)
 
         for tau in target_time:
             # The event-related (F(t) and S(t)) contributions to the clever covariate (h)

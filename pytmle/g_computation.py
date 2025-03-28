@@ -25,11 +25,19 @@ def get_g_comp(
     """
     risks = []
 
+    # survival function needs to lagged for CIF calculation
+    lagged_total_surv = np.column_stack(
+        [
+            np.ones((total_surv.shape[0], 1)),
+            total_surv[:, :-1],
+        ],
+    )
+
     for j in range(hazards.shape[-1]):
         if j + 1 not in target_events:
             continue
         # Calculate cumulative risk for each instance (row) at each time point
-        risk_a = np.cumsum(total_surv * hazards[..., j], axis=1)
+        risk_a = np.cumsum(lagged_total_surv * hazards[..., j], axis=1)
 
         # Filter only the columns corresponding to target times
         target_cols = eval_times[np.isin(eval_times, target_time)]

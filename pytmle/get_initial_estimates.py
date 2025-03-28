@@ -78,9 +78,9 @@ def abs_risk_integrated_brier_score(
         The counting processes.
     """
     s = np.exp(-np.sum(chf, axis=-1))
-    s_ = np.concatenate((np.ones((s.shape[0], 1)), s[:, :-1]), axis=1)
+    s_ = np.column_stack([np.ones((s.shape[0], 1)), s[:, :-1]])
     hf = np.diff(chf, axis=1, prepend=0)
-    abs_risk = np.cumsum(hf * np.expand_dims(s_, -1), axis=1)
+    abs_risk = np.cumsum(hf * s_[..., np.newaxis], axis=1)
     brier = (abs_risk - counting_processes) ** 2
     # TODO: Add weights?
     ibs = np.mean(
@@ -258,25 +258,25 @@ def fit_state_learner(
                 )
                 # Get the counting processes per event type and stack all cumulative hazards
                 grid_mat = np.tile(time_grid, (X.shape[0], 1))
-                event_mat = np.expand_dims(event_times, 1) <= grid_mat
+                event_mat = event_times[:, np.newaxis] <= grid_mat
                 chfs_list = []
                 events_by_cause_list = []
                 if fit_risks_model:
                     causes = np.unique(event_indicator[event_indicator != 0])
                     for c in causes:
                         events_by_cause_list.append(
-                            event_mat * np.expand_dims((event_indicator == c), 1)
+                            event_mat * (event_indicator == c)[:, np.newaxis]
                         )
                     for i in range(len(events_by_cause_list)):
                         chfs_list.append(cumhaz_f_i[..., i])  # type: ignore
                 else:
                     # precomputed event-free survival enters the loss if given
                     events_by_cause_list.append(
-                        event_mat * np.expand_dims((event_indicator > 0), 1)
+                        event_mat * (event_indicator > 0)[:, np.newaxis]
                     )
                     chfs_list.append(-np.log(precomputed_event_free_survival))
                 events_by_cause_list.append(
-                    event_mat * np.expand_dims((event_indicator == 0), 1)
+                    event_mat * (event_indicator == 0)[:, np.newaxis]
                 )
                 if fit_censoring_model:
                     chfs_list.append(cens_cumhaz_f_i[..., 0])
