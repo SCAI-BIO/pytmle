@@ -4,6 +4,7 @@ from sksurv.ensemble import RandomSurvivalForest
 from typing import List, Tuple
 import warnings
 
+
 def get_default_models(
     event_times,
     event_indicator,
@@ -38,6 +39,7 @@ def get_default_models(
                 ImportWarning,
             )
 
+
     # CoxPH model
     risk_models.append(CoxPHSurvivalAnalysis())
     censoring_models.append(CoxPHSurvivalAnalysis())
@@ -49,6 +51,7 @@ def get_default_models(
     label_transformers.append(None)
 
     return risk_models, censoring_models, label_transformers
+
 
 
 def vanilla_deephit(
