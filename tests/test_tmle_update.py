@@ -17,10 +17,12 @@ import numpy as np
 # (None, [1]),
 # (None, [1, 2])])
 def test_tmle_update(mock_tmle_update_inputs, target_times, target_events):
+    mock_tmle_update_inputs["event_indicator"] *= np.isin(
+        mock_tmle_update_inputs["event_indicator"], [0] + target_events
+    ).astype(int)
     mock_tmle_update_inputs["target_times"] = target_times
-    mock_tmle_update_inputs["target_events"] = target_events
     updated_estimates, _, has_converged, _ = tmle_update(
-        **mock_tmle_update_inputs, g_comp=True
+        **mock_tmle_update_inputs, g_comp=True, target_events=target_events
     )
 
     # TMLE should converge easily on the simple mock data

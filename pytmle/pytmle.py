@@ -1,5 +1,12 @@
+import os
+import warnings
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+from typing import Optional, List, Dict, Tuple
+
 from .estimates import InitialEstimates
-from .get_initial_estimates import fit_default_propensity_model, fit_default_risk_model, fit_default_censoring_model
+from .get_initial_estimates import fit_propensity_super_learner, fit_state_learner
 from .tmle_update import tmle_update
 from .predict_ate import (
     get_counterfactual_risks,
@@ -10,16 +17,6 @@ from .evalues_benchmark import EvaluesBenchmark
 from .plotting import plot_risks, plot_ate, plot_nuisance_weights
 from .bootstrap import bootstrap_tmle_loop
 
-import os
-import logging
-import numpy as np
-import pandas as pd
-import matplotlib.pyplot as plt
-from typing import Optional, List, Dict, Tuple
-
-logger = logging.getLogger(__name__)
-logging.basicConfig(level=logging.INFO)
-
 class PyTMLE:
 
     def __init__(
@@ -29,13 +26,12 @@ class PyTMLE:
         col_event_indicator: str = "event_indicator",
         col_group: str = "group",
         target_times: Optional[List[float]] = None,
-        target_events: List[int] = [1],
         g_comp: bool = True,
         evalues_benchmark: bool = False,
         key_1: int = 1,
         key_0: int = 0,
         initial_estimates: Optional[Dict[int, InitialEstimates]] = None,
-        verbose: bool = True,
+        verbose: int = 2,
     ):
         """
         Initialize the PyTMLE model.
@@ -52,8 +48,6 @@ class PyTMLE:
             The column name in the data that contains group information. Default is "group".
         target_times : Optional[List[float]], optional
             Specific times at which to estimate the target parameter. If None, estimates for the last observed event time are used. Default is None.
-        target_events : List[int], optional
-            List of event types to target. Default is [1].
         g_comp : bool, optional
             Whether to use g-computation for initial estimates. Default is True.
         evalues_benchmark : bool, optional
@@ -64,18 +58,19 @@ class PyTMLE:
             The key representing the control group. Default is 0.
         initial_estimates : Optional[Dict[int, InitialEstimates]], optional
             Dict with pre-computed initial estimates for the two potential outcomes. Default is None.
-        verbose : bool, optional
-            Whether to print verbose output. Default is True.
+        verbose : int, optional
+            Verbosity level. 0: Absolutely so logging at all, 1: only warnings, 2: major execution steps, 3: execution steps, 4: everything for debugging. Default is 2.
         """
-        self._check_inputs(data, 
-                           col_event_times, 
-                           col_event_indicator, 
-                           col_group, 
-                           target_times, 
-                           target_events, 
-                           key_1, 
-                           key_0, 
-                           initial_estimates)
+        self._check_inputs(
+            data,
+            col_event_times,
+            col_event_indicator,
+            col_group,
+            target_times,
+            key_1,
+            key_0,
+            initial_estimates,
+        )
         self._initial_estimates = initial_estimates
         self._updated_estimates = None
         self._X = data.drop(
@@ -92,7 +87,9 @@ class PyTMLE:
             self.target_times = [max(self._event_times)]
         else:
             self.target_times = target_times
-        self.target_events = target_events
+        self.target_events = np.unique(
+            data.loc[data[col_event_indicator] != 0, col_event_indicator]
+        )
         self.g_comp = g_comp
         self.key_1 = key_1
         self.key_0 = key_0
@@ -103,26 +100,30 @@ class PyTMLE:
         self.step_num = 0
         self.norm_pn_eics = []
         self.models = {}
+        self.state_learner_cv_fit = None
         if evalues_benchmark:
-            if initial_estimates is not None:
-                logger.warning(
-                     "E-values benchmark for measured covariates may be incorrect if pre-computed initial estimates are provided because the measured covariates need to be dropped during model fitting."
+            if initial_estimates is not None and self.verbose >= 1:
+                warnings.warn(
+                    "E-values benchmark for measured covariates may be incorrect "
+                    "if pre-computed initial estimates are provided because "
+                    "the measured covariates need to be dropped during model fitting.",
+                    RuntimeWarning,
                 )
-            self.evalues_benchmark = EvaluesBenchmark(self)
+            self.evalues_benchmark = EvaluesBenchmark(self, verbose=self.verbose)
         else:
-            self.evalues_benchmark = EvaluesBenchmark()
+            self.evalues_benchmark = EvaluesBenchmark(verbose=self.verbose)
 
     def _check_inputs(
-                self, 
-                data: pd.DataFrame, 
-                col_event_times: str, 
-                col_event_indicator: str, 
-                col_group: str, 
-                target_times: Optional[List[float]],
-                target_events: List[int],
-                key_1: int,
-                key_0: int,
-                initial_estimates: Optional[Dict[int, InitialEstimates]]):
+        self,
+        data: pd.DataFrame,
+        col_event_times: str,
+        col_event_indicator: str,
+        col_group: str,
+        target_times: Optional[List[float]],
+        key_1: int,
+        key_0: int,
+        initial_estimates: Optional[Dict[int, InitialEstimates]],
+    ):
         if col_event_times not in data.columns:
             raise ValueError(f"Column {col_event_times} not found in the given data.")
         if col_event_indicator not in data.columns:
@@ -139,86 +140,156 @@ class PyTMLE:
                 raise ValueError(
                     "key_1 and key_0 have to be in line with the keys of the given initial estimates."
                 )
-        if not (data[col_event_indicator] == 0).any():
-            raise ValueError("Censoring has to be indicated by 0 in the event_indicator column.")
         unique_events = np.unique(data[col_event_indicator])
-        if not unique_events[-1] - unique_events[0] == len(unique_events) - 1:
-            raise ValueError(f"Event indicators have to be consecutive integers. Got {unique_events}.")
-        if not all(np.isin(target_events, data[col_event_indicator])):
-            raise ValueError("All target events have to be in the event_indicator column.")
+        if unique_events.dtype != int or not (
+            unique_events[-1] == len(unique_events) - 1
+        ):
+            raise ValueError(
+                f"Event indicators have to be consecutive integers starting from 0. Got {unique_events}."
+            )
         if target_times is not None and not max(target_times) <= max(data[col_event_times]):
             raise ValueError("All target times have to be smaller or equal to the maximum event time in the data.")
         if target_times is not None and min(target_times) < 0:
             raise ValueError("All target times have to be positive.")
-        # TODO: Either make the selection of target events more flexible or remove the option altogether (such that all non-zero events are targeted).
-        if not (np.array_equal(target_events, np.arange(1, len(target_events) + 1))):
-            raise ValueError(
-                "target_events must be consecutive integers starting from 1."
-            )
 
-    def _get_initial_estimates(self, cv_folds: int, save_models: bool):
+    def _get_initial_estimates(
+        self,
+        cv_folds: int,
+        models,
+        labtrans,
+        additional_inputs: Optional[Tuple],
+        n_epochs: int,
+        batch_size: int,
+        save_models: bool,
+    ):
         if self._initial_estimates is None:
-            self._initial_estimates = {self.key_1:
-                                       InitialEstimates(g_star_obs = self._group,
-                                                        times=np.unique(self._event_times)),
-                                        self.key_0:
-                                        InitialEstimates(g_star_obs = 1 - self._group,
-                                                        times=np.unique(self._event_times)),
-                                        }
+            self._initial_estimates = {
+                self.key_1: InitialEstimates(
+                    g_star_obs=self._group, times=np.unique(self._event_times)
+                ),
+                self.key_0: InitialEstimates(
+                    g_star_obs=1 - self._group, times=np.unique(self._event_times)
+                ),
+            }
 
-        if (self._initial_estimates[self.key_1].propensity_scores is None or 
-            self._initial_estimates[self.key_0].propensity_scores is None):
-            logger.info("Estimating propensity scores...")
+        if (
+            self._initial_estimates[self.key_1].propensity_scores is None
+            or self._initial_estimates[self.key_0].propensity_scores is None
+        ):
+            if self.verbose >= 2:
+                print("Estimating propensity scores...")
             propensity_scores_1, propensity_scores_0, model_dict = (
-                fit_default_propensity_model(
+                fit_propensity_super_learner(
                     X=self._X,
                     y=self._group,
                     cv_folds=cv_folds,
                     return_model=save_models,
+                    verbose=self.verbose >= 4,
                 )
             )
             self.models.update(model_dict)
             self._initial_estimates[self.key_1].propensity_scores = propensity_scores_1
             self._initial_estimates[self.key_0].propensity_scores = propensity_scores_0
         else:
-            logger.info("Using given propensity score estimates")
-        if (self._initial_estimates[self.key_1].hazards is None or 
-            self._initial_estimates[self.key_0].hazards is None or
-            self._initial_estimates[self.key_1].event_free_survival_function is None or 
-            self._initial_estimates[self.key_0].event_free_survival_function is None):
-            logger.info("Estimating hazards and event-free survival...")
-            hazards_1, hazards_0, surv_1, surv_0, model_dict = fit_default_risk_model(
+            if self.verbose >= 2:
+                print("Using given propensity score estimates")
+
+        hazards_missing = (
+            self._initial_estimates[self.key_1].hazards is None
+            or self._initial_estimates[self.key_0].hazards is None
+            or self._initial_estimates[self.key_1].event_free_survival_function is None
+            or self._initial_estimates[self.key_0].event_free_survival_function is None
+        )
+        if hazards_missing:
+            if self.verbose >= 2:
+                print("Estimating hazards and event-free survival...")
+            factual_event_free_survival = None
+            fit_risks_model = True
+        else:
+            if self.verbose >= 2:
+                print("Using given hazard and event-free survival estimates")
+            factual_event_free_survival = np.where(
+                np.expand_dims(self._group, 1) == 1,
+                self._initial_estimates[self.key_1].event_free_survival_function,  # type: ignore
+                self._initial_estimates[self.key_0].event_free_survival_function,  # type: ignore
+            )
+            fit_risks_model = False
+
+        cens_missing = (
+            self._initial_estimates[self.key_1].censoring_survival_function is None
+            or self._initial_estimates[self.key_0].censoring_survival_function is None
+        )
+        if cens_missing:
+            if self.verbose >= 2:
+                print("Estimating censoring survival...")
+            factual_censoring_survival = None
+            fit_censoring_model = True
+        else:
+            if self.verbose >= 2:
+                print("Using given censoring survival estimates")
+            factual_censoring_survival = np.where(
+                np.expand_dims(self._group, 1) == 1,
+                self._initial_estimates[self.key_1].censoring_survival_function,  # type: ignore
+                self._initial_estimates[self.key_0].censoring_survival_function,  # type: ignore
+            )
+            fit_censoring_model = False
+
+        if fit_risks_model or fit_censoring_model:
+            (
+                hazards_1,
+                hazards_0,
+                surv_1,
+                surv_0,
+                cens_surv_1,
+                cens_surv_0,
+                model_dict,
+                labtrans,
+                self.state_learner_cv_fit,
+            ) = fit_state_learner(
                 X=self._X,
                 trt=self._group,
                 event_times=self._event_times,
                 event_indicator=self._event_indicator,
-                target_events=self.target_events,
+                additional_inputs=additional_inputs,
                 cv_folds=cv_folds,
                 return_model=save_models,
+                models=models,
+                labtrans=labtrans,
+                max_time=max(self.target_times),
+                n_epochs=n_epochs,
+                batch_size=batch_size,
+                precomputed_event_free_survival=factual_event_free_survival,
+                precomputed_censoring_survival=factual_censoring_survival,
+                verbose=self.verbose,
             )
             self.models.update(model_dict)
-            self._initial_estimates[self.key_1].hazards = hazards_1
-            self._initial_estimates[self.key_1].event_free_survival_function = surv_1
-            self._initial_estimates[self.key_0].hazards = hazards_0
-            self._initial_estimates[self.key_0].event_free_survival_function = surv_0
-        else:
-            logger.info("Using given hazard and event-free survival estimates")
-        if (self._initial_estimates[self.key_1].censoring_survival_function is None or 
-            self._initial_estimates[self.key_0].censoring_survival_function is None):
-            logger.info("Estimating censoring survival...")
-            cens_surv_1, cens_surv_0, model_dict = fit_default_censoring_model(
-                X=self._X,
-                trt=self._group,
-                event_times=self._event_times,
-                event_indicator=self._event_indicator,
-                cv_folds=cv_folds,
-                return_model=save_models,
+            # update times if they were tranformed in the risk model
+            if labtrans is not None:
+                self._initial_estimates[self.key_1].times = labtrans.cuts
+                self._initial_estimates[self.key_0].times = labtrans.cuts
+            if hazards_1 is not None and hazards_0 is not None:
+                self._initial_estimates[self.key_1].hazards = hazards_1
+                self._initial_estimates[self.key_0].hazards = hazards_0
+            if surv_1 is not None and surv_0 is not None:
+                self._initial_estimates[self.key_1].event_free_survival_function = (
+                    surv_1
+                )
+                self._initial_estimates[self.key_0].event_free_survival_function = (
+                    surv_0
+                )
+            if cens_surv_1 is not None and cens_surv_0 is not None:
+                self._initial_estimates[self.key_1].censoring_survival_function = (
+                    cens_surv_1
+                )
+                self._initial_estimates[self.key_0].censoring_survival_function = (
+                    cens_surv_0
+                )
+
+        # there may be changes if times were transformed
+        if labtrans is not None:
+            self._event_times, _ = labtrans.transform(
+                self._event_times, self._event_indicator
             )
-            self.models.update(model_dict)
-            self._initial_estimates[self.key_1].censoring_survival_function = cens_surv_1
-            self._initial_estimates[self.key_0].censoring_survival_function = cens_surv_0
-        else:
-            logger.info("Using given censoring survival estimates")
 
     def _update_estimates(
         self,
@@ -233,8 +304,8 @@ class PyTMLE:
         assert self._initial_estimates is not None, "Initial estimates have to be available before calling _update_estimates()."
         for k in self._initial_estimates:
             assert self._initial_estimates[k] is not None, "Initial estimates have to be available before calling _update_estimates()."
-
-        logger.info("Starting TMLE update loop...")
+        if self.verbose >= 2:
+            print("Starting TMLE update loop...")
         if bootstrap:
             self._bootstrap_results = bootstrap_tmle_loop(
                 self._initial_estimates,
@@ -250,6 +321,7 @@ class PyTMLE:
                 one_step_eps=one_step_eps,
                 key_1=self.key_1,
                 key_0=self.key_0,
+                verbose=self.verbose,
             )
         (
             self._updated_estimates,
@@ -281,6 +353,12 @@ class PyTMLE:
         n_bootstrap: int = 100,
         n_jobs: int = 4,
         stratified_bootstrap: bool = False,
+        use_cox_superlearner: bool = False,
+        models=None,
+        labtrans=None,
+        additional_inputs: Optional[Tuple] = None,
+        n_epochs: int = 100,
+        batch_size: int = 128,
     ):
         """
         Fit the TMLE model.
@@ -308,10 +386,30 @@ class PyTMLE:
             Number of parallel jobs for bootstrapping. Default is 4.
         stratified_bootstrap : bool, optional
             Whether to perform stratified bootstrapping. Default is False.
+        use_cox_superlearner : bool, optional
+            Whether to use the Cox super learner for the risk model instead of cross fitting DeepHit (default) or a given model. Default is False.
+        models : Optional, optional
+            A list of models to use for the state learner. Default is None.
+        labtrans : Optional, optional
+            A list of labtrans objects to use for the risk model. Default is None.
+        additional_inputs : Optional[Tuple], optional
+            Additional inputs for the risk and censoring models. Can be tuple of torch.Tensors or np.ndarray, but has to be compatible with torchtuples. Default is None.
+        n_epochs : int, optional
+            Number of epochs for training the model in each cross fitting fold. Default is 100.
+        batch_size : int, optional
+            Batch size for training the model in each cross fitting fold. Default is 128.
         """
         if self._fitted:
             raise RuntimeError("Model has already been fitted. fit() can only be called once.")
-        self._get_initial_estimates(cv_folds, save_models)
+        self._get_initial_estimates(
+            cv_folds,
+            save_models=save_models,
+            models=models,
+            labtrans=labtrans,
+            additional_inputs=additional_inputs,
+            n_epochs=n_epochs,
+            batch_size=batch_size,
+        )
         self._update_estimates(
             max_updates,
             min_nuisance,
@@ -336,6 +434,11 @@ class PyTMLE:
                 n_bootstrap=n_bootstrap,
                 n_jobs=n_jobs,
                 stratified_bootstrap=stratified_bootstrap,
+                use_cox_superlearner=use_cox_superlearner,
+                models=models,
+                labtrans=labtrans,
+                n_epochs=n_epochs,
+                batch_size=batch_size,
             )
 
     def predict(self, type: str = "risks", alpha: float = 0.05, g_comp: bool = False) -> pd.DataFrame:
@@ -380,7 +483,7 @@ class PyTMLE:
                 key_0=self.key_0,
                 bootstrap_results=self._bootstrap_results,
             )
-        else: 
+        else:
             raise ValueError(
                 f"Only 'risks', 'ratio' and 'diff' are supported as type, got {type}."
             )
@@ -437,7 +540,7 @@ class PyTMLE:
                 color_0=color_0,
                 use_bootstrap=use_bootstrap,
             )
-        elif type == "ratio" or type == "diff":
+        elif type in ("ratio", "diff"):
             pred = self.predict(type=type, alpha=alpha)
             if g_comp:
                 pred_g_comp = self.predict(type=type, alpha=alpha, g_comp=True)
@@ -447,7 +550,7 @@ class PyTMLE:
                 type=type,
                 use_bootstrap=use_bootstrap,
             )
-        else: 
+        else:
             raise ValueError(f"Only 'risks', 'ratio' and 'diff' are supported as type, got {type}.")
 
         if save_path is not None:
@@ -492,9 +595,7 @@ class PyTMLE:
             target_times=target_times,
             times=self._updated_estimates[self.key_1].times,  # type: ignore
             min_nuisance=self._updated_estimates[self.key_1].min_nuisance,  # type: ignore
-            nuisance_weights=self._updated_estimates[
-                self.key_1
-            ].nuisance_weight,  # type: ignore
+            nuisance_weights=self._updated_estimates[self.key_1].nuisance_weight,  # type: ignore
             g_star_obs=self._updated_estimates[self.key_1].g_star_obs,
             plot_size=plot_size,
             color_1=color_1,

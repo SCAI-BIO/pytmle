@@ -14,6 +14,7 @@ from pytmle import PyTMLE
         ([False, False, False]),
     ],
 )
+@pytest.mark.slow
 def test_fit(mock_main_class_inputs, precomputed_initial_est_mask):
     df = mock_main_class_inputs["data"][["event_time", "event_indicator", "group", "x1", "x2", "x3"]]
 
@@ -33,28 +34,19 @@ def test_fit(mock_main_class_inputs, precomputed_initial_est_mask):
         if not precomputed_initial_est_mask[2]:
             initial_estimates[1].censoring_survival_function = None
             initial_estimates[0].censoring_survival_function = None
-    tmle = PyTMLE(data=df,
-                 target_times=[1.0, 2.0, 3.0],
-                 target_events=[1, 2],
-                 initial_estimates=initial_estimates)
+    tmle = PyTMLE(
+        data=df, target_times=[1.0, 2.0, 3.0], initial_estimates=initial_estimates
+    )
 
-    tmle.fit(max_updates=100, bootstrap=True, n_bootstrap=4)
+    tmle.fit(
+        max_updates=100,
+        bootstrap=True,
+        n_bootstrap=8,
+        stratified_bootstrap=True,
+        cv_folds=2,
+    )
     assert tmle._fitted
     # TMLE should converge easily on the simple mock data
     assert tmle.has_converged, "TMLE update did not converge."
     # check if the bootstrap results are stored
     assert tmle._bootstrap_results is not None
-
-    # tmle.plot(
-    #     "/home/jguski/COMMUTE/tmle/plot.png",
-    #     type="risks",
-    #     g_comp=True,
-    #     color_1="#c00000",
-    #     color_0="#699aaf",
-    # )
-    # tmle.plot_nuisance_weights(
-    #     "/home/jguski/COMMUTE/tmle/nuisance_weights_plots",
-    #     color_1="#c00000",
-    #     color_0="#699aaf",
-    # )
-    # tmle.plot_norm_pn_eic("/home/jguski/COMMUTE/tmle/norm_pn_eic.png")

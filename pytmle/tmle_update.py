@@ -1,12 +1,11 @@
 from typing import Dict, List, Optional, Tuple
 import numpy as np
 import pandas as pd
-import logging
+import warnings
 
 from pytmle.estimates import InitialEstimates, UpdatedEstimates
 from pytmle.get_influence_curve import get_eic, get_clever_covariate
 
-logger = logging.getLogger(__name__)
 
 def combine_summarized_eic(estimates):
     """
@@ -76,9 +75,16 @@ def update_hazards(
     """
     updated_hazards = np.zeros_like(hazards)
 
+    # survival function needs to lagged for CIF calculation
+    lagged_total_surv = np.column_stack(
+        [
+            np.ones((total_surv.shape[0], 1)),
+            total_surv[:, :-1],
+        ],
+    )
+
     for l in range(1, hazards.shape[-1] + 1):
         if l not in target_event:
-            # TODO: Check if it is correct to not update non-target hazards (in concrete, all events other than censoring are automatically made target events: https://github.com/imbroglio-dc/concrete/blob/main/R/formatArguments.R#L567)
             continue
         # Initialize the update term
         update_term = np.zeros_like(hazards[..., l - 1])
@@ -86,7 +92,7 @@ def update_hazards(
 
         for j in target_event:
             # Compute F.j.t for the current event type
-            f_j_t = np.cumsum(hazards[..., j - 1] * total_surv, axis=1)
+            f_j_t = np.cumsum(hazards[..., j - 1] * lagged_total_surv, axis=1)
             for tau in target_time:
                 # Initialize matrices for clever covariate computation
                 h_fs = np.zeros_like(f_j_t)
@@ -149,7 +155,7 @@ def tmle_loop(
         max_updates (int): Maximum number of TMLE update iterations.
         one_step_eps (float): Initial epsilon for one-step update.
         norm_pn_eic (float): Norm of the efficient influence curve.
-        verbose (bool): Flag to enable or disable logging.
+        verbose (int): Sets logging level.
 
     Returns:
         dict: Updated estimates after TMLE procedure.
@@ -166,7 +172,8 @@ def tmle_loop(
 
     while step_num < max_updates and iter_num < max_updates * 2:
         iter_num += 1
-        logger.debug(f"Iteration {iter_num}: Starting update step {step_num + 1}.")
+        if verbose >= 4:
+            print(f"Iteration {iter_num}: Starting update step {step_num + 1}.")
 
         # Get updated hazards and EICs
         new_ests = {}
@@ -204,7 +211,8 @@ def tmle_loop(
                 g_comp_est=est_a.g_comp_est,
             )
 
-        logger.debug("Updated hazards and survival functions computed.")
+        if verbose >= 4:
+            print("Updated hazards and survival functions computed.")
 
         # get EIC for updated estimates
         new_ests = get_eic(
@@ -213,7 +221,8 @@ def tmle_loop(
             event_indicator=delta,
         )
 
-        logger.debug("Efficient influence curves (EIC) computed for updated estimates.")
+        if verbose >= 4:
+            print("Efficient influence curves (EIC) computed for updated estimates.")
 
         # Check for improvement
         new_summ_eic = combine_summarized_eic(new_ests)
@@ -229,13 +238,14 @@ def tmle_loop(
             raise ValueError("Update failed: Survival reached zero.")
 
         if norm_pn_eic < new_norm_pn_eic:
-            logger.debug("No improvement in norm PnEIC, reducing epsilon.")
+            if verbose >= 4:
+                print("No improvement in norm PnEIC, reducing epsilon.")
             working_eps /= 2
             continue
 
         step_num += 1
-        if verbose:
-            logger.info(f"Step {step_num}: Norm PnEIC improved to {new_norm_pn_eic}.")
+        if verbose >= 3:
+            print(f"Step {step_num}: Norm PnEIC improved to {new_norm_pn_eic}.")
 
         # Update estimates
         estimates.update(new_ests)
@@ -250,14 +260,16 @@ def tmle_loop(
         )
 
         if all(new_summ_eic["check"]):
-            logger.info(f"TMLE converged at step {step_num}.")
+            if verbose >= 2:
+                print(f"TMLE converged at step {step_num}.")
             return new_ests, norm_pn_eics, True, step_num
 
     # Warning for non-convergence
-    logger.warning(
-        f"Warning: TMLE has not converged by step {max_updates}. Estimates may not have the desired asymptotic properties."
-    )
-
+    if verbose >= 1:
+        warnings.warn(
+            f"Warning: TMLE has not converged by step {max_updates}. Estimates may not have the desired asymptotic properties.",
+            RuntimeWarning,
+        )
     return estimates, norm_pn_eics, False, step_num
 
 
@@ -271,7 +283,7 @@ def tmle_update(
     min_nuisance: Optional[float] = None,
     g_comp: bool = False,
     one_step_eps: float = 0.1,
-    verbose: bool = True,
+    verbose: int = 2,
 ) -> Tuple[Dict[int, UpdatedEstimates], List[float], bool, int]:
     """
     Function to update the initial estimates using the TMLE algorithm.
@@ -296,8 +308,9 @@ def tmle_update(
         Whether to return the g-computation estimates. Default is False.
     one_step_eps : float
         Initial epsilon for the one-step update. Default is 0.1.
-    verbose : bool
-        Flag to enable or disable logging. Default is True.
+    verbose : int
+        Verbosity level. 0: Absolutely so logging at all, 1: only warnings, 2: major execution steps, 3: execution steps, 4: everything for debugging. Default is 2.
+
 
     Returns
     -------
@@ -341,7 +354,8 @@ def tmle_update(
 
     # check if initial estimates already fulfill convergence criterion
     if all(summ_eic["check"]):
-        logger.info("Initial estimates already fulfill convergence criterion.")
+        if verbose >= 2:
+            print("Initial estimates already fulfill convergence criterion.")
         return updated_estimates, [norm_pn_eic], True, 0
 
     return tmle_loop(
