@@ -3,7 +3,7 @@ import pandas as pd
 from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier, StackingClassifier
 from sklearn.model_selection import cross_val_predict, StratifiedKFold
-from typing import Tuple, Optional, Any
+from typing import Tuple, Optional, Any, List
 from copy import deepcopy
 import warnings
 
@@ -12,7 +12,12 @@ from .initial_estimates_default_models import get_default_models
 
 
 def fit_propensity_super_learner(
-    X: np.ndarray, y: np.ndarray, cv_folds: int, return_model: bool, verbose: int
+    X: np.ndarray,
+    y: np.ndarray,
+    cv_folds: int,
+    base_learners: Optional[List],
+    return_model: bool,
+    verbose: int,
 ) -> Tuple[np.ndarray, np.ndarray, dict]:
     """
     Fit a stacking classifier to estimate the propensity scores.
@@ -27,6 +32,8 @@ def fit_propensity_super_learner(
         The number of cross-validation folds.
     return_model : bool
         Whether to return the fitted model.
+    base_learners : List
+        The base learners to use in the stacking classifier. If None, will use the default base learners.
     verbose: bool
         If true, will set verbosity to maximum level.
 
@@ -37,10 +44,16 @@ def fit_propensity_super_learner(
     """
     # all-nan columns are removed (relevant for E-value benchmark)
     X = X[:, ~np.isnan(X).all(axis=0)]
-    base_learners = [
-        ("rf", RandomForestClassifier()),
-        ("gb", GradientBoostingClassifier()),
-    ]
+    if base_learners is None:
+        # defaults
+        base_learners = [
+            ("rf", RandomForestClassifier()),
+            ("gb", GradientBoostingClassifier()),
+        ]
+    else:
+        base_learners = [
+            (str(i), deepcopy(model)) for i, model in enumerate(base_learners)
+        ]
     # ('lr', LogisticRegression(max_iter=200))] # don't use for now because of convergence issues
     super_learner = StackingClassifier(
         estimators=base_learners,

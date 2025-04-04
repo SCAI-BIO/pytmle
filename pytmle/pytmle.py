@@ -157,6 +157,7 @@ class PyTMLE:
         cv_folds: int,
         models,
         labtrans,
+        propensity_score_models,
         additional_inputs: Optional[Tuple],
         n_epochs: int,
         batch_size: int,
@@ -184,6 +185,7 @@ class PyTMLE:
                     y=self._group,
                     cv_folds=cv_folds,
                     return_model=save_models,
+                    base_learners=propensity_score_models,
                     verbose=self.verbose >= 4,
                 )
             )
@@ -356,6 +358,7 @@ class PyTMLE:
         use_cox_superlearner: bool = False,
         models=None,
         labtrans=None,
+        propensity_score_models=None,
         additional_inputs: Optional[Tuple] = None,
         n_epochs: int = 100,
         batch_size: int = 128,
@@ -392,6 +395,8 @@ class PyTMLE:
             A list of models to use for the state learner. Default is None.
         labtrans : Optional, optional
             A list of labtrans objects to use for the risk model. Default is None.
+        propensity_score_models : Optional, optional
+            A list of models to use for the propensity score stacking classifier. Default is None.
         additional_inputs : Optional[Tuple], optional
             Additional inputs for the risk and censoring models. Can be tuple of torch.Tensors or np.ndarray, but has to be compatible with torchtuples. Default is None.
         n_epochs : int, optional
@@ -406,6 +411,7 @@ class PyTMLE:
             save_models=save_models,
             models=models,
             labtrans=labtrans,
+            propensity_score_models=propensity_score_models,
             additional_inputs=additional_inputs,
             n_epochs=n_epochs,
             batch_size=batch_size,
