@@ -159,7 +159,7 @@ def ate_ratio(
         pred_ratios["E_value CI limit"] = evalues_ci_limit
         if bootstrap_results is not None:
             pred_ratios = pred_ratios.merge(
-                bootstrap_results[bootstrap_results["type"] == "ratio"].drop(
+                bootstrap_results[bootstrap_results["type"] == "rr"].drop(
                     columns=["Group", "type"]
                 ),
                 on=["Event", "Time"],
@@ -287,7 +287,7 @@ def ate_diff(
         pred_diffs["E_value CI limit"] = evalues_ci_limit
         if bootstrap_results is not None:
             pred_diffs = pred_diffs.merge(
-                bootstrap_results[bootstrap_results["type"] == "diff"].drop(
+                bootstrap_results[bootstrap_results["type"] == "rd"].drop(
                     columns=["Group", "type"]
                 ),
                 on=["Event", "Time"],

@@ -34,8 +34,8 @@ class EvaluesBenchmark:
         alpha: float = 0.05,
         **kwargs,
     ):
-        self.rr_full = full_model.predict("ratio", alpha=alpha)
-        self.rd_full = full_model.predict("diff", alpha=alpha)
+        self.rr_full = full_model.predict("rr", alpha=alpha)
+        self.rd_full = full_model.predict("rd", alpha=alpha)
         self.rr_full["Limiting bound"] = np.where(self.rr_full["E_value CI limit"]=="lower", self.rr_full["CI_lower"], self.rr_full["CI_upper"])
         # transformed RR and CIs proposed by VanderWeele and Ding (2017)
         self.rd_full["RR"] = np.exp(0.91 * self.rd_full["Pt Est"])
@@ -80,8 +80,8 @@ class EvaluesBenchmark:
             tmle._X[:, i] = np.nan
             tmle.fit(max_updates=max_updates, **kwargs)
             # get ratio estimates for the benchmark model
-            rr = tmle.predict("ratio")
-            rr["type"] = "ratio"
+            rr = tmle.predict("rr")
+            rr["type"] = "rr"
             rr["benchmark_feature"] = f
             ci_rr = np.where(self.rr_full["E_value CI limit"]=="lower", rr["CI_lower"], rr["CI_upper"])
             rr["E_value measured"] = [
@@ -89,8 +89,8 @@ class EvaluesBenchmark:
                 for ci, ci_new in zip(self.rr_full["Limiting bound"], ci_rr)
             ]
             # get diff estimates for the benchmark model
-            rd = tmle.predict("diff")
-            rd["type"] = "diff"
+            rd = tmle.predict("rd")
+            rd["type"] = "rd"
             rd["benchmark_feature"] = f
             ci_rd = np.where(
                 self.rd_full["E_value CI limit"] == "lower",
@@ -233,26 +233,30 @@ class EvaluesBenchmark:
         evalue_measured_key = (
             "E_value measured (bootstrap)" if use_bootstrap else "E_value measured"
         )
-        if ate_type == "ratio":
+        if ate_type == "rr":
             full_df = self.rr_full[(self.rr_full["Time"] == target_time) & 
                                  (self.rr_full["Event"] == target_event)]
             rr = full_df["Pt Est"].item()
             if self.benchmarking_results is not None:
-                benchmark_df = self.benchmarking_results[(self.benchmarking_results["Time"] == target_time) &
-                                                    (self.benchmarking_results["Event"] == target_event) &
-                                                    (self.benchmarking_results["type"] == "ratio")]
+                benchmark_df = self.benchmarking_results[
+                    (self.benchmarking_results["Time"] == target_time)
+                    & (self.benchmarking_results["Event"] == target_event)
+                    & (self.benchmarking_results["type"] == "rr")
+                ]
                 benchmark_df = benchmark_df.sort_values(
                     by=evalue_measured_key, ascending=False
                 )
-        elif ate_type == "diff":
+        elif ate_type == "rd":
             full_df = self.rd_full[(self.rd_full["Time"] == target_time) & 
                                  (self.rd_full["Event"] == target_event)]
             # load the RD transformed to RR
             rr = full_df["RR"].item()
             if self.benchmarking_results is not None:
-                benchmark_df = self.benchmarking_results[(self.benchmarking_results["Time"] == target_time) &
-                                                    (self.benchmarking_results["Event"] == target_event) &
-                                                    (self.benchmarking_results["type"] == "diff")]
+                benchmark_df = self.benchmarking_results[
+                    (self.benchmarking_results["Time"] == target_time)
+                    & (self.benchmarking_results["Event"] == target_event)
+                    & (self.benchmarking_results["type"] == "rd")
+                ]
                 benchmark_df = benchmark_df.sort_values(
                     by=evalue_measured_key, ascending=False
                 )

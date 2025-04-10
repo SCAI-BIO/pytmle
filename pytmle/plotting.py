@@ -102,7 +102,7 @@ def plot_risks(
 def plot_ate(
     tmle_est: pd.DataFrame,
     g_comp_est: Optional[pd.DataFrame] = None,
-    type="ratio",
+    type="rr",
     use_bootstrap: bool = False,
 ) -> tuple:
     target_events = tmle_est["Event"].unique()
@@ -112,10 +112,10 @@ def plot_ate(
     ci_lower_key = "CI_lower_bootstrap" if use_bootstrap else "CI_lower"
     ci_upper_key = "CI_upper_bootstrap" if use_bootstrap else "CI_upper"
 
-    if type == "ratio" or type == "diff":
+    if type == "rr" or type == "rd":
         fig.suptitle("Average Treatment Effect (ATE) Estimates Over Time", fontsize=16)
     else:
-        raise ValueError(f"type must be either 'ratio' or 'diff', got {type}.")
+        raise ValueError(f"type must be either 'rr' or 'rd', got {type}.")
 
     all_ci_lower = []
     all_ci_upper = []
@@ -148,11 +148,11 @@ def plot_ate(
         ax.set_title(f"Event {event}")
         ax.set_xlabel("Time")
         ax.set_xlim(0, None)
-        if type == "ratio":
-            ax.set_ylabel("ATE (Ratio)")
+        if type == "rr":
+            ax.set_ylabel("ATE (RR)")
             ax.axhline(y=1, linestyle="--", color="gray", alpha=0.7)
-        elif type == "diff":
-            ax.set_ylabel("ATE (Difference)")
+        elif type == "rd":
+            ax.set_ylabel("ATE (RD)")
             ax.axhline(y=0, linestyle="--", color="gray", alpha=0.7)
 
         # add legend
@@ -210,7 +210,7 @@ def plot_nuisance_weights(
             plt.title('Weights close to 0 or 1 warn of possible positivity violations', fontsize=13)
         else:
             plt.title('Weights close to 0 warn of possible positivity violations', fontsize=13)
-        plt.xlabel(r'$\pi(a|w) \, S_c(t|a,w)$', fontsize=13)
+        plt.xlabel(r"$\pi(a|w) \, G(t|a,w)$", fontsize=13)
         plt.xlim(0,1)
         plt.ylabel('Density', fontsize=13)
         plt.legend(title="Group")

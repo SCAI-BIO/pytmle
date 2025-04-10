@@ -454,8 +454,8 @@ class PyTMLE:
         Parameters
         ----------
         type : str, optional
-            The type of prediction. "risks", "ratio" and "diff" are supported. Default is "risks".
-        alpha : float, optional 
+            The type of prediction. "risks", "rr" and "rd" are supported. Default is "risks".
+        alpha : float, optional
             The alpha level for confidence intervals. Default is 0.05.
         g_comp : bool, optional
             Whether to return the g-computation estimates instead of the updated estimates. Default is False.
@@ -471,7 +471,7 @@ class PyTMLE:
                 key_0=self.key_0,
                 bootstrap_results=self._bootstrap_results,
             )
-        elif type == "ratio":
+        elif type == "rr":
             return ate_ratio(
                 self._updated_estimates,
                 g_comp=g_comp,
@@ -480,7 +480,7 @@ class PyTMLE:
                 key_0=self.key_0,
                 bootstrap_results=self._bootstrap_results,
             )
-        elif type == "diff":
+        elif type == "rd":
             return ate_diff(
                 self._updated_estimates,
                 g_comp=g_comp,
@@ -491,7 +491,7 @@ class PyTMLE:
             )
         else:
             raise ValueError(
-                f"Only 'risks', 'ratio' and 'diff' are supported as type, got {type}."
+                f"Only 'risks', 'rr' and 'rd' are supported as type, got {type}."
             )
 
     def plot(
@@ -512,7 +512,7 @@ class PyTMLE:
         save_path : Optional[str], optional
             Path to save the plot. Default is None.
         type : str, optional
-            The type of prediction. "risks", "ratio" and "diff" are supported. Default is "risks".
+            The type of prediction. "risks", "rr" and "rd" are supported. Default is "risks".
         alpha : float, optional
             The alpha level for confidence intervals. Default is 0.05.
         g_comp : bool, optional
@@ -546,7 +546,7 @@ class PyTMLE:
                 color_0=color_0,
                 use_bootstrap=use_bootstrap,
             )
-        elif type in ("ratio", "diff"):
+        elif type in ("rr", "rd"):
             pred = self.predict(type=type, alpha=alpha)
             if g_comp:
                 pred_g_comp = self.predict(type=type, alpha=alpha, g_comp=True)
@@ -557,7 +557,9 @@ class PyTMLE:
                 use_bootstrap=use_bootstrap,
             )
         else:
-            raise ValueError(f"Only 'risks', 'ratio' and 'diff' are supported as type, got {type}.")
+            raise ValueError(
+                f"Only 'risks', 'rr' and 'rd' are supported as type, got {type}."
+            )
 
         if save_path is not None:
             plt.savefig(save_path)
@@ -620,7 +622,7 @@ class PyTMLE:
     ):
         _, ax = plt.subplots(figsize=plot_size)
         ax.plot(self.norm_pn_eics, marker="o")
-        ax.set_title("Norm of the Pointwise Nuisance Function", fontsize=16)
+        ax.set_title("Norm of the empirical measure of the EIC", fontsize=16)
         ax.set_xlabel("Iteration")
         ax.set_ylabel("||PnEIC||")
         if save_dir_path is not None:
@@ -634,7 +636,7 @@ class PyTMLE:
         save_dir_path: Optional[str] = None,
         time: Optional[float] = None,
         event: Optional[int] = None,
-        type: str = "ratio",
+        type: str = "rr",
         use_bootstrap: bool = False,
         num_points_per_contour: int = 200,
         color_point_estimate: str = "blue",

@@ -30,7 +30,7 @@ def test_predict_mean_risks(mock_updated_estimates):
             assert os.path.exists(f'/tmp/test_nuisance_weights_plot_t{time}.png')  # Check if the plot file exists
             os.remove(f'/tmp/test_nuisance_weights_plot_t{time}.png')  # Clean up the file after the test
             plt.close()  # Close the plot
-    
+
 
 def test_get_counterfactual_risks(mock_updated_estimates):
     results = dict.fromkeys(["tmle", "g_comp"])
@@ -84,7 +84,7 @@ def test_ate_ratio(mock_updated_estimates):
         assert len(result) == len(mock_updated_estimates[0].target_times) * len(mock_updated_estimates[1].target_events)
 
     # test plotting
-    plot_ate(results["tmle"], results["g_comp"], type="ratio")
+    plot_ate(results["tmle"], results["g_comp"], type="rr")
     assert len(plt.gcf().axes) == len(mock_updated_estimates[0].target_events)  # Check if the plot has one axis for each target event
     plt.savefig('/tmp/test_ate_ratio_plot.png')  # Save the plot to a file
     assert os.path.exists('/tmp/test_ate_ratio_plot.png')  # Check if the plot file exists
@@ -122,7 +122,7 @@ def test_ate_diff(mock_updated_estimates):
         assert len(result) == len(mock_updated_estimates[0].target_times) * len(mock_updated_estimates[1].target_events)
 
     # test plotting
-    plot_ate(results["tmle"], results["g_comp"], type="diff")
+    plot_ate(results["tmle"], results["g_comp"], type="rd")
     assert len(plt.gcf().axes) == len(mock_updated_estimates[0].target_events)  # Check if the plot has one axis for each target event
     plt.savefig('/tmp/test_ate_diff_plot.png')  # Save the plot to a file
     assert os.path.exists('/tmp/test_ate_diff_plot.png')  # Check if the plot file exists

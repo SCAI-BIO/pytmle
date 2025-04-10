@@ -74,12 +74,12 @@ def single_boot(initial_estimates,
     ate_ratios = ate_ratio(updated_estimates, 
                            key_1=key_1, 
                            key_0=key_0)[["Event", "Time", "Pt Est"]]
-    ate_ratios["type"] = "ratio"
+    ate_ratios["type"] = "rr"
     ate_ratios["Group"] = -1
     ate_diffs = ate_diff(updated_estimates, 
                          key_1=key_1, 
                          key_0=key_0)[["Event", "Time", "Pt Est"]]
-    ate_diffs["type"] = "diff"
+    ate_diffs["type"] = "rd"
     ate_diffs["Group"] = -1
     result_df = pd.concat([cf_risks, ate_ratios, ate_diffs])
     return result_df
