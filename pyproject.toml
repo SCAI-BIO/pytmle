@@ -19,10 +19,17 @@ dependencies = [
 dev = [
     "ipykernel>=6.29.5",
     "pytest>=8.3.5",
+    "torch>=2.6.0",
 ]
 
 [tool.uv.sources]
 pycox = { git = "https://github.com/pooya-mohammadi/pycox" }
+torch = { index = "pytorch-cpu" }
 
 [tool.setuptools]
 packages = ["pytmle"]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
