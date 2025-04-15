@@ -1,7 +1,11 @@
 import numpy as np
 import pandas as pd
 from sklearn.linear_model import LogisticRegression
-from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier, StackingClassifier
+from sklearn.ensemble import (
+    RandomForestClassifier,
+    GradientBoostingClassifier,
+    StackingClassifier,
+)
 from sklearn.model_selection import cross_val_predict, StratifiedKFold
 from typing import Tuple, Optional, Any, List
 from copy import deepcopy
@@ -217,6 +221,7 @@ def fit_state_learner(
 
     loss_list = []
     fitted_models_dict = {}
+    final_labtrans = None
     min_loss = np.inf
     for risks_model, risks_labtrans in zip(risks_models, risks_label_transformers):
         for censoring_model, censoring_labtrans in zip(
@@ -341,6 +346,7 @@ def fit_state_learner(
                     else:
                         cens_surv_1 = None
                         cens_surv_0 = None
+                    final_labtrans = combined_labtrans
                     if return_model:
                         fitted_models_dict.update(fitted_models)
 
@@ -362,7 +368,7 @@ def fit_state_learner(
             cens_surv_1,
             cens_surv_0,
             fitted_models_dict,
-            combined_labtrans,
+            final_labtrans,
             loss_df,
         )
     return (
@@ -373,7 +379,7 @@ def fit_state_learner(
         cens_surv_1,
         cens_surv_0,
         {},
-        combined_labtrans,
+        final_labtrans,
         loss_df,
     )
 

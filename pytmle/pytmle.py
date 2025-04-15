@@ -17,6 +17,7 @@ from .evalues_benchmark import EvaluesBenchmark
 from .plotting import plot_risks, plot_ate, plot_nuisance_weights
 from .bootstrap import bootstrap_tmle_loop
 
+
 class PyTMLE:
 
     def __init__(
@@ -127,7 +128,9 @@ class PyTMLE:
         if col_event_times not in data.columns:
             raise ValueError(f"Column {col_event_times} not found in the given data.")
         if col_event_indicator not in data.columns:
-            raise ValueError(f"Column {col_event_indicator} not found in the given data.")
+            raise ValueError(
+                f"Column {col_event_indicator} not found in the given data."
+            )
         if col_group not in data.columns:
             raise ValueError(f"Column {col_group} not found in the given data.")
         if len(data[col_group].unique()) != 2:
@@ -147,8 +150,12 @@ class PyTMLE:
             raise ValueError(
                 f"Event indicators have to be consecutive integers starting from 0. Got {unique_events}."
             )
-        if target_times is not None and not max(target_times) <= max(data[col_event_times]):
-            raise ValueError("All target times have to be smaller or equal to the maximum event time in the data.")
+        if target_times is not None and not max(target_times) <= max(
+            data[col_event_times]
+        ):
+            raise ValueError(
+                "All target times have to be smaller or equal to the maximum event time in the data."
+            )
         if target_times is not None and min(target_times) < 0:
             raise ValueError("All target times have to be positive.")
 
@@ -289,9 +296,10 @@ class PyTMLE:
 
         # there may be changes if times were transformed
         if labtrans is not None:
-            self._event_times, _ = labtrans.transform(
+            binned_times, _ = labtrans.transform(
                 self._event_times, self._event_indicator
             )
+            self._event_times = labtrans.cuts[binned_times]
 
     def _update_estimates(
         self,
@@ -303,9 +311,13 @@ class PyTMLE:
         n_jobs: int = 4,
         stratified_bootstrap: bool = False,
     ):
-        assert self._initial_estimates is not None, "Initial estimates have to be available before calling _update_estimates()."
+        assert (
+            self._initial_estimates is not None
+        ), "Initial estimates have to be available before calling _update_estimates()."
         for k in self._initial_estimates:
-            assert self._initial_estimates[k] is not None, "Initial estimates have to be available before calling _update_estimates()."
+            assert (
+                self._initial_estimates[k] is not None
+            ), "Initial estimates have to be available before calling _update_estimates()."
         if self.verbose >= 2:
             print("Starting TMLE update loop...")
         if bootstrap:
@@ -405,7 +417,9 @@ class PyTMLE:
             Batch size for training the model in each cross fitting fold. Default is 128.
         """
         if self._fitted:
-            raise RuntimeError("Model has already been fitted. fit() can only be called once.")
+            raise RuntimeError(
+                "Model has already been fitted. fit() can only be called once."
+            )
         self._get_initial_estimates(
             cv_folds,
             save_models=save_models,
@@ -447,7 +461,9 @@ class PyTMLE:
                 batch_size=batch_size,
             )
 
-    def predict(self, type: str = "risks", alpha: float = 0.05, g_comp: bool = False) -> pd.DataFrame:
+    def predict(
+        self, type: str = "risks", alpha: float = 0.05, g_comp: bool = False
+    ) -> pd.DataFrame:
         """
         Predict the counterfactual risks or average treatment effect.
 
@@ -588,8 +604,10 @@ class PyTMLE:
         color_0 : Optional[str], optional
             Color for the control group. Default is None.
         """
-        if self._updated_estimates is None: 
-            raise RuntimeError("Updated estimates must have been initialized before calling plot_nuisance_weights().")
+        if self._updated_estimates is None:
+            raise RuntimeError(
+                "Updated estimates must have been initialized before calling plot_nuisance_weights()."
+            )
         if save_dir_path is not None and not os.path.exists(save_dir_path):
             os.makedirs(save_dir_path)
         if time is not None:
@@ -610,7 +628,9 @@ class PyTMLE:
             color_0=color_0,
         ):
             if save_dir_path is not None:
-                plt.savefig(f'{save_dir_path}/nuisance_weights_t{time}.png', bbox_inches="tight")
+                plt.savefig(
+                    f"{save_dir_path}/nuisance_weights_t{time}.png", bbox_inches="tight"
+                )
             else:
                 plt.show()
             plt.close()
@@ -676,7 +696,10 @@ class PyTMLE:
             use_bootstrap=use_bootstrap,
         ):
             if save_dir_path is not None:
-                plt.savefig(f"{save_dir_path}/evalue_contours_{event}_t{time}.png", bbox_inches="tight")
+                plt.savefig(
+                    f"{save_dir_path}/evalue_contours_{event}_t{time}.png",
+                    bbox_inches="tight",
+                )
             else:
                 plt.show()
             plt.close()

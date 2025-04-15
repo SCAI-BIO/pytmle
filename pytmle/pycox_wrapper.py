@@ -4,10 +4,12 @@ from sksurv.util import Surv
 from typing import Optional, Tuple
 import warnings
 
+
 class PycoxWrapper:
     """
     A wrapper class to unify the interface of different survival analysis libraries (pycox, scikit-survival)
     """
+
     def __init__(
         self,
         wrapped_model,
@@ -51,11 +53,13 @@ class PycoxWrapper:
     def _update_times(
         self, predictions: np.ndarray, value: int, ffill: bool
     ) -> np.ndarray:
-        """ Update the predictions to include all given times with jumps in the dataset"""
+        """Update the predictions to include all given times with jumps in the dataset"""
         if len(predictions.shape) == 2:
             pred_updated = np.full((predictions.shape[0], len(self.jumps)), np.nan)
         else:
-            pred_updated = np.full((predictions.shape[0], len(self.jumps), predictions.shape[-1]), np.nan)
+            pred_updated = np.full(
+                (predictions.shape[0], len(self.jumps), predictions.shape[-1]), np.nan
+            )
 
         if self.labtrans is None:
             fit_times_indices = (
@@ -63,7 +67,12 @@ class PycoxWrapper:
                 - 1
             )
         else:
-            fit_times_indices = np.arange(len(self.jumps))
+            if len(self.jumps) != predictions.shape[1]:
+                fit_times_indices = np.searchsorted(
+                    np.arange(len(self.jumps)), np.unique(self.fit_times)
+                )
+            else:
+                fit_times_indices = np.arange(len(self.jumps))
         pred_updated[:, fit_times_indices] = predictions
 
         mask = np.isnan(pred_updated)
@@ -75,9 +84,9 @@ class PycoxWrapper:
                         if j == 0:
                             pred_updated[i][j] = value
                         else:
-                            pred_updated[i][j] =pred_updated[i][j-1]
+                            pred_updated[i][j] = pred_updated[i][j - 1]
         else:
-            pred_updated[mask] = value 
+            pred_updated[mask] = value
         return pred_updated
 
     def fit(
@@ -118,11 +127,10 @@ class PycoxWrapper:
         additional_inputs: Optional[Tuple[np.ndarray]],
         **kwargs,
     ) -> np.ndarray:
-        """ Predict survival function for a given input"
-        """
+        """Predict survival function for a given input" """
         if not self.fitted:
             raise ValueError("Model has not been fitted")
-        if hasattr(self.wrapped_model, 'predict_surv'):
+        if hasattr(self.wrapped_model, "predict_surv"):
             # pycox
             input = self._handle_all_missing_columns(input, "zero")
             if additional_inputs is not None:
@@ -131,7 +139,9 @@ class PycoxWrapper:
         elif hasattr(self.wrapped_model, "predict_survival_function"):
             # scikit-survival
             input = self._handle_all_missing_columns(input, "remove")
-            surv = self.wrapped_model.predict_survival_function(input, return_array=True)
+            surv = self.wrapped_model.predict_survival_function(
+                input, return_array=True
+            )
         else:
             raise ValueError("Model does not have a predict_surv method")
         if surv.shape[1] == len(input):
@@ -149,7 +159,7 @@ class PycoxWrapper:
         if not self.fitted:
             raise ValueError("Model has not been fitted")
 
-        if hasattr(self.wrapped_model, 'predict_cif'):
+        if hasattr(self.wrapped_model, "predict_cif"):
             # pycox with competing risks (e.g., DeepHit)
             input = self._handle_all_missing_columns(input, "zero")
             surv = self.predict_surv(input, additional_inputs)
@@ -167,7 +177,7 @@ class PycoxWrapper:
                 raise RuntimeError(
                     f"CIF output has {cum_haz.shape[2]} causes of failure, but only {len(np.unique(self.all_events)) - 1} are present in the data."
                 )
-        elif hasattr(self.wrapped_model, 'predict_cumulative_hazards'):
+        elif hasattr(self.wrapped_model, "predict_cumulative_hazards"):
             # pycox without competing risks (e.g., DeepSurv)
             input = self._handle_all_missing_columns(input, "zero")
             if additional_inputs is not None:
@@ -177,16 +187,20 @@ class PycoxWrapper:
                 cum_haz = cum_haz.T
             if len(cum_haz.shape) == 2:
                 cum_haz = cum_haz[..., np.newaxis]
-        elif hasattr(self.wrapped_model, 'predict_cumulative_hazard_function'):
+        elif hasattr(self.wrapped_model, "predict_cumulative_hazard_function"):
             # scikit-survival
             input = self._handle_all_missing_columns(input, "remove")
-            cum_haz = self.wrapped_model.predict_cumulative_hazard_function(input, return_array=True)
+            cum_haz = self.wrapped_model.predict_cumulative_hazard_function(
+                input, return_array=True
+            )
             if cum_haz.shape[1] == len(input):
                 cum_haz = cum_haz.T
             if len(cum_haz.shape) == 2:
                 cum_haz = cum_haz[..., np.newaxis]
         else:
-            raise ValueError("Model has no method to predict cumulative hazards or CIF.")
+            raise ValueError(
+                "Model has no method to predict cumulative hazards or CIF."
+            )
 
         cum_haz = self._update_times(cum_haz, 0, ffill=True)
         return cum_haz

@@ -36,9 +36,8 @@ def get_default_models(
         if verbose >= 1:
             warnings.warn(
                 f"Default DeepHit model not available: {e}. Will only cross-fit Cox PH and random survival forest.",
-                ImportWarning,
+                UserWarning,
             )
-
 
     # CoxPH model
     risk_models.append(CoxPHSurvivalAnalysis())
@@ -53,12 +52,10 @@ def get_default_models(
     return risk_models, censoring_models, label_transformers
 
 
-
-def vanilla_deephit(
-    labtrans, event_indicator, event_times, input_size
-):
+def vanilla_deephit(labtrans, event_indicator, event_times, input_size):
     """
-    A simplified version of the DeepHit model from the pycox library as default if no model is provided."""
+    A simplified version of the DeepHit model from the pycox library as default if no model is provided.
+    """
     import torch
     import torchtuples as tt
     from pycox.models import DeepHit
