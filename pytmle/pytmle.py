@@ -76,7 +76,7 @@ class PyTMLE:
         self._updated_estimates = None
         self._X = data.drop(
             columns=[col_event_times, col_event_indicator, col_group]
-        ).to_numpy()
+        ).to_numpy(dtype=float)
         self._feature_names = data.drop(
             columns=[col_event_times, col_event_indicator, col_group]
         ).columns
@@ -142,6 +142,16 @@ class PyTMLE:
             ):
                 raise ValueError(
                     "key_1 and key_0 have to be in line with the keys of the given initial estimates."
+                )
+            if not np.array_equal(
+                np.unique(data[col_event_times]),
+                np.unique(initial_estimates[key_1].times),
+            ) or not np.array_equal(
+                np.unique(data[col_event_times]),
+                np.unique(initial_estimates[key_0].times),
+            ):
+                raise ValueError(
+                    "All values in data[col_event_times] must be present in initial_estimates[key_1].times and initial_estimates[key_0] and vice versa."
                 )
         unique_events = np.unique(data[col_event_indicator])
         if unique_events.dtype != int or not (
@@ -629,7 +639,7 @@ class PyTMLE:
         ):
             if save_dir_path is not None:
                 plt.savefig(
-                    f"{save_dir_path}/nuisance_weights_t{time}.png", bbox_inches="tight"
+                    f"{save_dir_path}/nuisance_weights_t{time}.svg", bbox_inches="tight"
                 )
             else:
                 plt.show()
@@ -697,7 +707,7 @@ class PyTMLE:
         ):
             if save_dir_path is not None:
                 plt.savefig(
-                    f"{save_dir_path}/evalue_contours_{event}_t{time}.png",
+                    f"{save_dir_path}/evalue_contours_{event}_t{time}.svg",
                     bbox_inches="tight",
                 )
             else:

@@ -171,6 +171,10 @@ class PycoxWrapper:
             lagged_surv_expanded = np.repeat(
                 lagged_surv_expanded, cif.shape[-1], axis=-1
             )
+            if np.any(lagged_surv_expanded == 0):
+                raise ValueError(
+                    "Zero values found in estimate of survival function, cannot derive hazards from CIF."
+                )
             haz = np.diff(cif, prepend=0, axis=1) / lagged_surv_expanded
             cum_haz = np.cumsum(haz, axis=1)
             if cum_haz.shape[2] > len(np.unique(self.all_events)) - 1:
