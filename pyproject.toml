@@ -4,6 +4,7 @@ version = "0.1.1"
 description = "A Flexible Python Implementation of Targeted Estimation for Survival and Competing Risks Analysis"
 readme = "README.md"
 requires-python = ">=3.9"
+license = { text = "Apache-2.0" }
 dependencies = [
     "matplotlib>=3.5.0",
     "numpy>=1.22.3",
