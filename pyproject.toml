@@ -30,6 +30,12 @@ torch = { index = "pytorch-cpu" }
 [tool.setuptools]
 packages = ["pytmle"]
 
+[dependency-groups]
+docs = [
+    "sphinx>=7.4.7",
+    "sphinx-rtd-theme>=3.0.2",
+]
+
 [[tool.uv.index]]
 name = "pytorch-cpu"
 url = "https://download.pytorch.org/whl/cpu"
