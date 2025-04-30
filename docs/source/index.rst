@@ -18,3 +18,15 @@ Indices and tables
 * :ref:`genindex`
 * :ref:`modindex`
 * :ref:`search`
+
+PyTMLE Class
+============
+.. autoclass:: pytmle.PyTMLE
+   :members: 
+   :special-members: __init__
+   :member-order: bysorce
+
+InitialEstimates Class
+=========================
+.. autoclass:: pytmle.InitialEstimates
+   :members: 
