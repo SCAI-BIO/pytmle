@@ -34,8 +34,8 @@ However, it also allows for custom models to be used for the initial estimates o
    :maxdepth: 2
    :caption: Tutorial notebooks
 
-   notebooks/01_tutorial_basic.ipynb
+   ./notebooks/01_tutorial_basic.ipynb
 
-   notebooks/02_tutorial_custom_model.ipynb
+   ./notebooks/02_tutorial_custom_model.ipynb
 
-   notebooks/03_tutorial_skip_first_stage.ipynb
+   ./notebooks/03_tutorial_skip_first_stage.ipynb
