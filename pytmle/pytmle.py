@@ -2,6 +2,7 @@ import os
 import warnings
 import numpy as np
 import pandas as pd
+from matplotlib.figure import Figure
 import matplotlib.pyplot as plt
 from typing import Optional, List, Dict, Tuple
 
@@ -35,22 +36,22 @@ class PyTMLE:
         verbose: int = 2,
     ):
         """
-        Initialize the PyTMLE model.
+        Initialize the PyTMLE class.
 
         Parameters
         ----------
         data : pd.DataFrame
-            The input data containing event times, event indicators, group information, and predictors.
+            The input data containing event times, event indicators, treatment group information, and predictors.
         col_event_times : str, optional
             The column name in the data that contains event times. Default is "event_time".
         col_event_indicator : str, optional
-            The column name in the data that contains event indicators. Default is "event_indicator".
+            The column name in the data that contains event indicators. Needs to contain consecutive integers starting at 0 (where 0 is for censored). Default is "event_indicator".
         col_group : str, optional
-            The column name in the data that contains group information. Default is "group".
+            The column name in the data that contains treatment group information. Needs to be binary. Default is "group".
         target_times : Optional[List[float]], optional
             Specific times at which to estimate the target parameter. If None, estimates for the last observed event time are used. Default is None.
         g_comp : bool, optional
-            Whether to use g-computation for initial estimates. Default is True.
+            Whether to store g-computation for initial estimates. Default is True.
         evalues_benchmark : bool, optional
             Whether to compute E-values for measured confounders. Default is False.
         key_1 : int, optional
@@ -58,7 +59,7 @@ class PyTMLE:
         key_0 : int, optional
             The key representing the control group. Default is 0.
         initial_estimates : Optional[Dict[int, InitialEstimates]], optional
-            Dict with pre-computed initial estimates for the two potential outcomes. Default is None.
+            Dict with pre-computed initial estimates for the two potential outcomes, which can be passed right to the second TMLE stage. Default is None.
         verbose : int, optional
             Verbosity level. 0: Absolutely so logging at all, 1: only warnings, 2: major execution steps, 3: execution steps, 4: everything for debugging. Default is 2.
         """
@@ -377,7 +378,6 @@ class PyTMLE:
         n_bootstrap: int = 100,
         n_jobs: int = 4,
         stratified_bootstrap: bool = False,
-        use_cox_superlearner: bool = False,
         models=None,
         labtrans=None,
         propensity_score_models=None,
@@ -391,12 +391,11 @@ class PyTMLE:
         Parameters
         ----------
         cv_folds : int, optional
-            Number of cross-validation folds for the initial estimate models.
-            The number is the same for the inner and outer loop used by the super learners. Default is 10.
+            Number of cross-validation folds for the initial estimate models. Default is 10.
         max_updates : int
             Maximum number of updates to the estimates in the TMLE loop. Default is 500.
         min_nuisance : Optional[float], optional
-            Value between 0 and 1 for truncating the g-related denomiator of the clever covariate. Default is None.
+            Value between 0 and 1 for truncating the g-related denominator of the clever covariate. Default is None, which means no truncation at all.
         one_step_eps : float
             Initial epsilon for the one-step update. Default is 0.1.
         save_models : bool, optional
@@ -404,27 +403,25 @@ class PyTMLE:
         alpha : float, optional
             The alpha level for confidence intervals (relevant only for E-value benchmark). Default is 0.05.
         bootstrap : bool, optional
-            Whether to perform bootstrapping. Default is False.
+            Whether to perform bootstrapping of the second TMLE stage for confidence intervals. Default is False.
         n_bootstrap : int, optional
-            Number of bootstrap samples. Default is 100.
+            Number of bootstrap samples. Has no effect if bootstrap is False. Default is 100.
         n_jobs : int, optional
-            Number of parallel jobs for bootstrapping. Default is 4.
+            Number of parallel jobs for bootstrapping. Has no effect if bootstrap is False. Default is 4.
         stratified_bootstrap : bool, optional
-            Whether to perform stratified bootstrapping. Default is False.
-        use_cox_superlearner : bool, optional
-            Whether to use the Cox super learner for the risk model instead of cross fitting DeepHit (default) or a given model. Default is False.
+            Whether to perform bootstrapping stratified by event indicator. Has no effect if bootstrap is False. Default is False.
         models : Optional, optional
-            A list of models to use for the state learner. Default is None.
+            A list of models to use for the state learner. If None, use the default library. Default is None.
         labtrans : Optional, optional
-            A list of labtrans objects to use for the risk model. Default is None.
+            A list of labtrans objects to use for the risk model (if required; e.g., discretizer for DeepHit). If not None, needs to be one object for all models, or one object per model. Default is None.
         propensity_score_models : Optional, optional
-            A list of models to use for the propensity score stacking classifier. Default is None.
+            A list of models to use for the propensity score stacking classifier. If None, use the default library. Default is None.
         additional_inputs : Optional[Tuple], optional
             Additional inputs for the risk and censoring models. Can be tuple of torch.Tensors or np.ndarray, but has to be compatible with torchtuples. Default is None.
         n_epochs : int, optional
-            Number of epochs for training the model in each cross fitting fold. Default is 100.
+            Number of epochs for training models in each cross fitting fold (if applicable). Default is 100.
         batch_size : int, optional
-            Batch size for training the model in each cross fitting fold. Default is 128.
+            Batch size for training models in each cross fitting fold (if applicable). Default is 128.
         """
         if self._fitted:
             raise RuntimeError(
@@ -464,7 +461,6 @@ class PyTMLE:
                 n_bootstrap=n_bootstrap,
                 n_jobs=n_jobs,
                 stratified_bootstrap=stratified_bootstrap,
-                use_cox_superlearner=use_cox_superlearner,
                 models=models,
                 labtrans=labtrans,
                 n_epochs=n_epochs,
@@ -485,6 +481,11 @@ class PyTMLE:
             The alpha level for confidence intervals. Default is 0.05.
         g_comp : bool, optional
             Whether to return the g-computation estimates instead of the updated estimates. Default is False.
+
+        Returns
+        -------
+        pd.DataFrame
+            The predicted counterfactual risks or average treatment effect.
         """
         if not self._fitted or self._updated_estimates is None:
             raise RuntimeError("Model has to be fitted before calling predict().")
@@ -529,33 +530,31 @@ class PyTMLE:
         color_1: Optional[str] = None,
         color_0: Optional[str] = None,
         use_bootstrap: bool = False,
-    ) -> tuple:
+    ) -> Optional[Tuple[Figure, np.ndarray]]:
         """
-        Plot the counterfactual risks or average treatment effect.
+        Plot the counterfactual risks or average treatment effect (in terms of RR or RD).
 
         Parameters
         ----------
         save_path : Optional[str], optional
-            Path to save the plot. Default is None.
+            Path to save the plot. If None, will return figure and axes. Default is None.
         type : str, optional
             The type of prediction. "risks", "rr" and "rd" are supported. Default is "risks".
         alpha : float, optional
             The alpha level for confidence intervals. Default is 0.05.
         g_comp : bool, optional
-            Whether to return the g-computation estimates instead of the updated estimates. Default is False.
+            Whether to include the g-computation estimates in the plot. Default is False.
         color_1 : Optional[str], optional
-            Color for the treatment group. Default is None.
+            Color for the potential outcome for "treated". Pick None for standard matplotlib colors. Default is None.
         color_0 : Optional[str], optional
-            Color for the control group. Default is None.
+            Color for the potential outcome for "untreated". Pick None for standard matplotlib colors. Default is None.
         use_bootstrap : bool, optional
             Whether to use the bootstrapped bounds instead of the theoretical bounds. Default is False.
 
         Returns
         -------
-        fig : matplotlib.figure.Figure
-            The figure object.
-        axes : np.ndarray
-            The axes objects.
+        Optional[Tuple[Figure, np.ndarray]]
+            The figure and axes of the plot. Only returned if save_path is None.
         """
         if use_bootstrap and self._bootstrap_results is None:
             raise RuntimeError(
@@ -599,7 +598,7 @@ class PyTMLE:
         color_1: Optional[str] = None,
         color_0: Optional[str] = None,
         plot_size: Tuple[float, float] = (6.4, 4.8),
-    ):
+    ) -> None:
         """
         Plot the nuisance weights.
 
@@ -608,11 +607,11 @@ class PyTMLE:
         time : Optional[float], optional
             Time at which to plot the nuisance weights. If None, all target times are plotted. Default is None.
         save_dir_path : Optional[str], optional
-            Path to directory to save the plots. Default is None.
+            Path to directory to save the plots. If None, will simply display the plots. Default is None.
         color_1 : Optional[str], optional
-            Color for the treatment group. Default is None.
+            Color for the treatment group. Pick None for standard matplotlib colors. Default is None.
         color_0 : Optional[str], optional
-            Color for the control group. Default is None.
+            Color for the control group. Pick None for standard matplotlib colors. Default is None.
         """
         if self._updated_estimates is None:
             raise RuntimeError(
@@ -650,6 +649,17 @@ class PyTMLE:
         save_dir_path: Optional[str] = None,
         plot_size: Tuple[float, float] = (6.4, 4.8),
     ):
+        """
+        Plot the norm of the empirical measure of the EIC.
+
+        Parameters
+        ----------
+        save_dir_path : Optional[str], optional
+            Path to directory to save the plot. If None, will simply display the plot. Default is None.
+        plot_size : Tuple[float, float], optional
+            Size of the plot. Default is (6.4, 4.8).
+        """
+
         _, ax = plt.subplots(figsize=plot_size)
         ax.plot(self.norm_pn_eics, marker="o")
         ax.set_title("Norm of the empirical measure of the EIC", fontsize=16)
@@ -674,6 +684,33 @@ class PyTMLE:
         color_benchmarking: str = "green",
         plot_size: Tuple[float, float] = (6.4, 4.8),
     ):
+        """
+        Plot the E-value contours for the estimated average treatment effect.
+
+        Parameters
+        ----------
+        save_dir_path : Optional[str], optional
+            Path to directory to save the plot. If None, will simply display the plot. Default is None.
+        time : Optional[float], optional
+            Time at which to plot the E-value contours. If None, will plot for all target times. Default is None.
+        event : Optional[int], optional
+            Event at which to plot the E-value contours. If None, will plot for all target events. Default is None.
+        type : str, optional
+            The type of prediction. "rr" and "rd" are supported. Default is "rr".
+        use_bootstrap : bool, optional
+            Whether to use the bootstrapped bounds instead of the theoretical bounds. Default is False.
+        num_points_per_contour : int, optional
+            Number of points per contour. Default is 200.
+        color_point_estimate : str, optional
+            Color for the point estimate. Default is "blue".
+        color_ci : str, optional
+            Color for the confidence interval. Default is "red".
+        color_benchmarking : str, optional
+            Color for the benchmarking. Default is "green".
+        plot_size : Tuple[float, float], optional
+            Size of the plot. Default is (6.4, 4.8).
+        """
+
         if not self._fitted:
             raise RuntimeError(
                 "Model has to be fitted before calling plot_evalue_contours()."

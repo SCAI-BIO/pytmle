@@ -3,10 +3,30 @@ import pandas as pd
 from dataclasses import dataclass, field
 from typing import Optional, List, Union
 
-from pytmle.g_computation import get_g_comp
+from .g_computation import get_g_comp
+
 
 @dataclass
 class InitialEstimates:
+    """
+    Class to store the initial estimates for the TMLE algorithm, including
+    the observed treatment, propensity scores, hazards, event-free survival function,
+    and censoring survival function. The initial estimates can be set to pre-computed values
+    to be passed right to the second stage of the TMLE algorithm. If left empty, they will
+    be computed in the first stage of the TMLE algorithm.
+    Make sure that the initial estimates are compatible with each other in terms of dimensions
+    (same number of rows (observations) and columns (time points)). This will be checked prior to
+    starting the TMLE update loop.
+
+    Attributes:
+        times (np.ndarray): Array of time points (have to be available for all time-to-event functions).
+        g_star_obs (np.ndarray): Observed treatment values (binary) (n_observations,).
+        propensity_scores (Optional[np.ndarray]): Propensity scores (n_observations,).
+        hazards (Optional[np.ndarray]): Hazards per competing event (n_observations, times, n_events).
+        event_free_survival_function (Optional[np.ndarray]): Event-free survival function (n_observations, times).
+        censoring_survival_function (Optional[np.ndarray]): Censoring survival function (n_observations, times).
+    """
+
     # these fields must be filled on instatiation
     times: np.ndarray
     g_star_obs: np.ndarray
@@ -20,12 +40,13 @@ class InitialEstimates:
 
     def __setattr__(self, name, value):
         if value is not None and self._run_checks:
-            if name in ["propensity_scores", 
-                        "g_star_obs"]:
+            if name in ["propensity_scores", "g_star_obs"]:
                 self._check_compatibility(value, check_width=False)
-            elif name in ["hazards", 
-                        "event_free_survival_function", 
-                        "censoring_survival_function"]:
+            elif name in [
+                "hazards",
+                "event_free_survival_function",
+                "censoring_survival_function",
+            ]:
                 self._check_compatibility(value, check_width=True)
         super().__setattr__(name, value)
 
@@ -37,7 +58,9 @@ class InitialEstimates:
             raise ValueError(
                 f"All initial estimates must have the same first dimension, got elements with sizes {self._length} and {len(new_element)}."
             )
-        if check_width and ((len(new_element.shape) < 2) or (new_element.shape[1] != len(self.times))):
+        if check_width and (
+            (len(new_element.shape) < 2) or (new_element.shape[1] != len(self.times))
+        ):
             raise ValueError(
                 f"The second dimension of all initial estimates must be in line with the given times, got {len(self.times)} times and element of shape {new_element.shape}."
             )
@@ -80,10 +103,10 @@ class InitialEstimates:
 @dataclass
 class UpdatedEstimates(InitialEstimates):
     # all have to be given
-    propensity_scores: np.ndarray # type: ignore
-    hazards: np.ndarray # type: ignore
-    event_free_survival_function: np.ndarray # type: ignore
-    censoring_survival_function: np.ndarray # type: ignore
+    propensity_scores: np.ndarray  # type: ignore
+    hazards: np.ndarray  # type: ignore
+    event_free_survival_function: np.ndarray  # type: ignore
+    censoring_survival_function: np.ndarray  # type: ignore
 
     # is set on initialization
     nuisance_weight: Optional[np.ndarray] = field(default=None, init=False)
@@ -131,10 +154,12 @@ class UpdatedEstimates(InitialEstimates):
         target_times: Optional[List[float]] = None,
         min_nuisance: Optional[float] = None,
     ) -> "UpdatedEstimates":
-        assert (initial_estimates.propensity_scores is not None and 
-                initial_estimates.hazards is not None and 
-                initial_estimates.event_free_survival_function is not None and
-                initial_estimates.censoring_survival_function is not None), "All initial estimates have to be provided prior to an instatiation of UpdatedEstimates."
+        assert (
+            initial_estimates.propensity_scores is not None
+            and initial_estimates.hazards is not None
+            and initial_estimates.event_free_survival_function is not None
+            and initial_estimates.censoring_survival_function is not None
+        ), "All initial estimates have to be provided prior to an instatiation of UpdatedEstimates."
         return cls(
             propensity_scores=initial_estimates.propensity_scores,
             hazards=initial_estimates.hazards,
@@ -175,8 +200,12 @@ class UpdatedEstimates(InitialEstimates):
             if 0 not in self.times:
                 self.times = np.insert(self.times, 0, 0)
                 self.hazards = np.insert(self.hazards, 0, 0, axis=1)
-                self.event_free_survival_function = np.insert(self.event_free_survival_function, 0, 1, axis=1)
-                self.censoring_survival_function = np.insert(self.censoring_survival_function, 0, 1, axis=1)
+                self.event_free_survival_function = np.insert(
+                    self.event_free_survival_function, 0, 1, axis=1
+                )
+                self.censoring_survival_function = np.insert(
+                    self.censoring_survival_function, 0, 1, axis=1
+                )
 
             # Find the indices where the new times should be inserted
             insert_times = [t for t in self.target_times if t not in self.times]
@@ -221,26 +250,22 @@ class UpdatedEstimates(InitialEstimates):
     def predict_mean_risks(self, g_comp: bool = False) -> pd.DataFrame:
         """
         Predict the mean risks for the target events and times.
-        Args:           
+        Args:
             g_comp (bool): Flag to return the G-computation estimate instead of the TMLE estimate.
         Returns:
             pd.DataFrame: DataFrame with columns 'Event', 'Time', 'Pt Est', and 'SE' containing the mean counterfactual risks.
         """
         if g_comp:
             if self.g_comp_est is None:
-                raise ValueError(
-                    "g_comp_est is not available."
-                )
+                raise ValueError("g_comp_est is not available.")
             # return g_comp_estimate from BEFORE the TMLE update loop (standard error not available)
             pred_risk = self.g_comp_est
             pred_risk["SE"] = np.nan
         else:
             # return g_comp_estimate from AFTER the TMLE update loop
             if self.summ_eic is None or self.ic is None:
-                raise ValueError(
-                    "ic or summ_eic is not available."
-                )
-            pred_risk =  get_g_comp(
+                raise ValueError("ic or summ_eic is not available.")
+            pred_risk = get_g_comp(
                 eval_times=self.times,
                 hazards=self.hazards,
                 total_surv=self.event_free_survival_function,
@@ -248,7 +273,7 @@ class UpdatedEstimates(InitialEstimates):
                 target_events=self.target_events,  # type: ignore
             )
             pred_risk = pred_risk.merge(self.summ_eic, on=["Event", "Time"])
-            pred_risk["SE"] = pred_risk["seEIC"] / len(self)**0.5
+            pred_risk["SE"] = pred_risk["seEIC"] / len(self) ** 0.5
             pred_risk = pred_risk[["Event", "Time", "Risk", "SE"]]
         pred_risk.rename(columns={"Risk": "Pt Est"}, inplace=True)
         return pred_risk

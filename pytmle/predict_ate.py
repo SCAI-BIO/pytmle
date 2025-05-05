@@ -2,7 +2,7 @@ from typing import Dict, Optional, Tuple
 import numpy as np
 import pandas as pd
 
-from pytmle.estimates import UpdatedEstimates
+from .estimates import UpdatedEstimates
 from scipy.stats import norm
 
 
@@ -16,24 +16,34 @@ def get_counterfactual_risks(
 ) -> pd.DataFrame:
     """
     Get counterfactual risks for the treatment and control groups.
-    """    
+    """
 
     if not key_1 in updated_estimates.keys() or not key_0 in updated_estimates.keys():
-        raise ValueError("Both keys must be present in the updated estimates dictionary.")
+        raise ValueError(
+            "Both keys must be present in the updated estimates dictionary."
+        )
     pred_risk_1 = updated_estimates[key_1].predict_mean_risks(g_comp=g_comp)
     pred_risk_1["Group"] = key_1
     pred_risk_0 = updated_estimates[key_0].predict_mean_risks(g_comp=g_comp)
     pred_risk_0["Group"] = key_0
 
-    assert (pred_risk_1["Time"] == pred_risk_0["Time"]).all(), "Time values do not match between groups."
-    assert (pred_risk_1["Event"] == pred_risk_0["Event"]).all(), "Event values do not match between groups."
+    assert (
+        pred_risk_1["Time"] == pred_risk_0["Time"]
+    ).all(), "Time values do not match between groups."
+    assert (
+        pred_risk_1["Event"] == pred_risk_0["Event"]
+    ).all(), "Event values do not match between groups."
 
     pred_risk = pd.concat([pred_risk_1, pred_risk_0], ignore_index=True)
 
     # confidence intervals
     if not g_comp:
-        pred_risk["CI_lower"] = pred_risk["Pt Est"] - norm.ppf(1 - alpha / 2) * pred_risk["SE"]
-        pred_risk["CI_upper"] = pred_risk["Pt Est"] + norm.ppf(1 - alpha / 2) * pred_risk["SE"]
+        pred_risk["CI_lower"] = (
+            pred_risk["Pt Est"] - norm.ppf(1 - alpha / 2) * pred_risk["SE"]
+        )
+        pred_risk["CI_upper"] = (
+            pred_risk["Pt Est"] + norm.ppf(1 - alpha / 2) * pred_risk["SE"]
+        )
     else:
         pred_risk["CI_lower"] = np.nan
         pred_risk["CI_upper"] = np.nan
@@ -143,11 +153,15 @@ def ate_ratio(
             R0 = float(pred_risk_0.loc[(event, time), "Pt Est"])
             IC_1 = np.array(ic_1.loc[(event, time), "IC"], dtype=float)
             IC_0 = np.array(ic_0.loc[(event, time), "IC"], dtype=float)
-            se = np.sqrt(np.mean((IC_1 / R0 - IC_0 * R1 / R0**2)**2) / len(IC_0))
+            se = np.sqrt(np.mean((IC_1 / R0 - IC_0 * R1 / R0**2) ** 2) / len(IC_0))
             pred_ratios.at[idx, "SE"] = se
         # confidence intervals
-        pred_ratios["CI_lower"] = pred_ratios["Pt Est"] - norm.ppf(1 - alpha / 2) * pred_ratios["SE"]
-        pred_ratios["CI_upper"] = pred_ratios["Pt Est"] + norm.ppf(1 - alpha / 2) * pred_ratios["SE"]
+        pred_ratios["CI_lower"] = (
+            pred_ratios["Pt Est"] - norm.ppf(1 - alpha / 2) * pred_ratios["SE"]
+        )
+        pred_ratios["CI_upper"] = (
+            pred_ratios["Pt Est"] + norm.ppf(1 - alpha / 2) * pred_ratios["SE"]
+        )
         # p-values
         z_stat = (pred_ratios["Pt Est"] - 1) / pred_ratios["SE"]
         pred_ratios["p_value"] = 2 * (1 - norm.cdf(np.abs(z_stat)))
@@ -274,8 +288,12 @@ def ate_diff(
         )
         pred_diffs = pred_diffs.merge(se, on=["Event", "Time"])
         # confidence intervals
-        pred_diffs["CI_lower"] = pred_diffs["Pt Est"] - norm.ppf(1 - alpha / 2) * pred_diffs["SE"]
-        pred_diffs["CI_upper"] = pred_diffs["Pt Est"] + norm.ppf(1 - alpha / 2) * pred_diffs["SE"]
+        pred_diffs["CI_lower"] = (
+            pred_diffs["Pt Est"] - norm.ppf(1 - alpha / 2) * pred_diffs["SE"]
+        )
+        pred_diffs["CI_upper"] = (
+            pred_diffs["Pt Est"] + norm.ppf(1 - alpha / 2) * pred_diffs["SE"]
+        )
         # p-values
         z_stat = pred_diffs["Pt Est"] / pred_diffs["SE"]
         pred_diffs["p_value"] = 2 * (1 - norm.cdf(np.abs(z_stat)))
