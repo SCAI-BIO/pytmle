@@ -5,15 +5,16 @@ import pandas as pd
 from tqdm import tqdm
 from concurrent.futures import ProcessPoolExecutor, as_completed
 
-from pytmle.tmle_update import tmle_update
-from pytmle.predict_ate import get_counterfactual_risks, ate_ratio, ate_diff
-from pytmle.estimates import InitialEstimates
+from .tmle_update import tmle_update
+from .predict_ate import get_counterfactual_risks, ate_ratio, ate_diff
+from .estimates import InitialEstimates
 
 
 def standard_bootstrap(event_indicator):
-    return np.random.choice(len(event_indicator), 
-                                        size=len(event_indicator), 
-                                        replace=True)
+    return np.random.choice(
+        len(event_indicator), size=len(event_indicator), replace=True
+    )
+
 
 def stratified_bootstrap(event_indicator):
     """
@@ -26,15 +27,18 @@ def stratified_bootstrap(event_indicator):
         sample_indices_all.append(sample_indices)
     return np.concatenate(sample_indices_all)
 
-def single_boot(initial_estimates, 
-                event_times, 
-                event_indicator, 
-                target_times, 
-                target_events, 
-                key_1, 
-                key_0, 
-                stratify_by_event,
-                **kwargs):
+
+def single_boot(
+    initial_estimates,
+    event_times,
+    event_indicator,
+    target_times,
+    target_events,
+    key_1,
+    key_0,
+    stratify_by_event,
+    **kwargs,
+):
     """
     Perform a single bootstrap sample and call tmle_update.
 
@@ -67,18 +71,18 @@ def single_boot(initial_estimates,
     if not converged:
         # if tmle_update did not converge, return None
         return
-    cf_risks = get_counterfactual_risks(updated_estimates, 
-                                        key_1=key_1, 
-                                        key_0=key_0)[["Event", "Time", "Group", "Pt Est"]]
-    cf_risks["type"] = "risks" 
-    ate_ratios = ate_ratio(updated_estimates, 
-                           key_1=key_1, 
-                           key_0=key_0)[["Event", "Time", "Pt Est"]]
+    cf_risks = get_counterfactual_risks(updated_estimates, key_1=key_1, key_0=key_0)[
+        ["Event", "Time", "Group", "Pt Est"]
+    ]
+    cf_risks["type"] = "risks"
+    ate_ratios = ate_ratio(updated_estimates, key_1=key_1, key_0=key_0)[
+        ["Event", "Time", "Pt Est"]
+    ]
     ate_ratios["type"] = "rr"
     ate_ratios["Group"] = -1
-    ate_diffs = ate_diff(updated_estimates, 
-                         key_1=key_1, 
-                         key_0=key_0)[["Event", "Time", "Pt Est"]]
+    ate_diffs = ate_diff(updated_estimates, key_1=key_1, key_0=key_0)[
+        ["Event", "Time", "Pt Est"]
+    ]
     ate_diffs["type"] = "rd"
     ate_diffs["Group"] = -1
     result_df = pd.concat([cf_risks, ate_ratios, ate_diffs])
@@ -177,11 +181,10 @@ def bootstrap_tmle_loop(
         )
     results_df = pd.concat(results)
     summary_df = (
-        results_df.groupby(["type", "Event", "Time", "Group"])["Pt Est"]
-        .agg(
+        results_df.groupby(["type", "Event", "Time", "Group"])["Pt Est"].agg(
             mean_bootstrap="mean",
             CI_lower=lambda x: x.quantile(alpha / 2),
-            CI_upper=lambda x: x.quantile(1 - alpha / 2)
+            CI_upper=lambda x: x.quantile(1 - alpha / 2),
         )
     ).reset_index()
     return summary_df

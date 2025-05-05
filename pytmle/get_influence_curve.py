@@ -2,8 +2,9 @@ from typing import List, Dict
 import numpy as np
 import pandas as pd
 
-from pytmle.estimates import UpdatedEstimates
-from pytmle.g_computation import get_g_comp
+from .estimates import UpdatedEstimates
+from .g_computation import get_g_comp
+
 
 def get_eic(
     estimates: Dict[int, UpdatedEstimates],

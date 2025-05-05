@@ -3,8 +3,8 @@ import numpy as np
 import pandas as pd
 import warnings
 
-from pytmle.estimates import InitialEstimates, UpdatedEstimates
-from pytmle.get_influence_curve import get_eic, get_clever_covariate
+from .estimates import InitialEstimates, UpdatedEstimates
+from .get_influence_curve import get_eic, get_clever_covariate
 
 
 def combine_summarized_eic(estimates):
@@ -23,7 +23,9 @@ def combine_summarized_eic(estimates):
     for trt, est in estimates.items():
         summ_eic_per_trt[trt] = est.summ_eic
 
-    combined_summ_eic = pd.concat([df.assign(trt=key) for key, df in summ_eic_per_trt.items()], ignore_index=True)
+    combined_summ_eic = pd.concat(
+        [df.assign(trt=key) for key, df in summ_eic_per_trt.items()], ignore_index=True
+    )
 
     return pd.DataFrame(combined_summ_eic)
 
