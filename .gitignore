@@ -4,5 +4,4 @@ pytmle.egg-info/
 build/
 *.ipynb
 !docs/source/notebooks/*.ipynb
-docs/notebooks/hodgkins_disease_pytmle.ipynb
 .vscode

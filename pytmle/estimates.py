@@ -8,6 +8,25 @@ from .g_computation import get_g_comp
 
 @dataclass
 class InitialEstimates:
+    """
+    Class to store the initial estimates for the TMLE algorithm, including
+    the observed treatment, propensity scores, hazards, event-free survival function,
+    and censoring survival function. The initial estimates can be set to pre-computed values
+    to be passed right to the second stage of the TMLE algorithm. If left empty, they will
+    be computed in the first stage of the TMLE algorithm.
+    Make sure that the initial estimates are compatible with each other in terms of dimensions
+    (same number of rows (observations) and columns (time points)). This will be checked prior to
+    starting the TMLE update loop.
+
+    Attributes:
+        times (np.ndarray): Array of time points (have to be available for all time-to-event functions).
+        g_star_obs (np.ndarray): Observed treatment values (binary) (n_observations,).
+        propensity_scores (Optional[np.ndarray]): Propensity scores (n_observations,).
+        hazards (Optional[np.ndarray]): Hazards per competing event (n_observations, times, n_events).
+        event_free_survival_function (Optional[np.ndarray]): Event-free survival function (n_observations, times).
+        censoring_survival_function (Optional[np.ndarray]): Censoring survival function (n_observations, times).
+    """
+
     # these fields must be filled on instatiation
     times: np.ndarray
     g_star_obs: np.ndarray
