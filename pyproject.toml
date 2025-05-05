@@ -9,6 +9,7 @@ dependencies = [
     "matplotlib>=3.5.0",
     "numpy>=1.22.3",
     "pandas>=1.3.4",
+    "pandoc>=2.4",
     "pycox",
     "scikit-learn>=1.2.2",
     "scikit-survival>=0.21.0",
@@ -32,6 +33,8 @@ packages = ["pytmle"]
 
 [dependency-groups]
 docs = [
+    "nbconvert>=7.16.6",
+    "nbsphinx>=0.9.7",
     "sphinx>=7.4.7",
     "sphinx-rtd-theme>=3.0.2",
 ]
