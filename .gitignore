@@ -3,6 +3,6 @@ __pycache__/
 pytmle.egg-info/
 build/
 *.ipynb
-!docs/notebooks/*.ipynb
+!docs/source/notebooks/*.ipynb
 docs/notebooks/hodgkins_disease_pytmle.ipynb
 .vscode
