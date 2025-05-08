@@ -239,7 +239,7 @@ def tmle_loop(
         if np.any(np.isnan(new_norm_pn_eic)):
             raise ValueError("Update failed: Survival reached zero.")
 
-        if norm_pn_eic < new_norm_pn_eic:
+        if norm_pn_eic <= new_norm_pn_eic:
             if verbose >= 4:
                 print("No improvement in norm PnEIC, reducing epsilon.")
             working_eps /= 2

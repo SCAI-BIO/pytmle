@@ -74,6 +74,7 @@ def fit_propensity_super_learner(
         cv=cv_folds,
         method="predict_proba",
         verbose=10 if verbose else 0,
+        n_jobs=-1,
     )
     if return_model:
         return pred[:, 1], pred[:, 0], {"propensity_model": super_learner}

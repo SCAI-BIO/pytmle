@@ -63,7 +63,9 @@ class PycoxWrapper:
 
         if self.labtrans is None:
             fit_times_indices = (
-                np.searchsorted(np.unique(self.all_times), np.unique(self.fit_times))
+                np.searchsorted(
+                    np.unique(self.all_times), np.unique(self.fit_times), side="right"
+                )
                 - 1
             )
         else:
