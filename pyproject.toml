@@ -1,6 +1,6 @@
 [project]
 name = "pytmle"
-version = "0.2.0"
+version = "0.2.1"
 description = "A Flexible Python Implementation of Targeted Estimation for Survival and Competing Risks Analysis"
 readme = "README.md"
 requires-python = ">=3.9"
