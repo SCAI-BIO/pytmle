@@ -1,3 +1,4 @@
+import mlflow
 import numpy as np
 import pandas as pd
 from sklearn.linear_model import LogisticRegression
@@ -123,6 +124,7 @@ def fit_state_learner(
     precomputed_event_free_survival: Optional[np.ndarray] = None,
     precomputed_censoring_survival: Optional[np.ndarray] = None,
     verbose: int = 2,
+    mlflow_logging: bool = False,
 ) -> Tuple[
     Optional[np.ndarray],
     Optional[np.ndarray],
@@ -174,6 +176,8 @@ def fit_state_learner(
         Precomputed censoring survival functions. Default is None.
     verbose : int
         Verbosity level. 0: Absolutely so logging at all, 1: only warnings, 2: major execution steps, 3: execution steps, 4: everything for debugging. Default is 2.
+    mlflow_logging : bool
+        Whether to log the results to mlflow. Default is False.
 
     Returns
     -------
@@ -224,6 +228,7 @@ def fit_state_learner(
     fitted_models_dict = {}
     final_labtrans = None
     min_loss = np.inf
+
     for risks_model, risks_labtrans in zip(risks_models, risks_label_transformers):
         for censoring_model, censoring_labtrans in zip(
             censoring_models, censoring_label_transformers
@@ -317,6 +322,7 @@ def fit_state_learner(
                 # compute the integrated Brier score including absolute risks
                 loss = abs_risk_integrated_brier_score(chfs, events_by_cause, time_grid)
 
+                # Add loss and model info to the list
                 loss_list.append(
                     {
                         "risks_model": risks_model.__class__.__name__,
@@ -324,6 +330,20 @@ def fit_state_learner(
                         "loss": loss,
                     }
                 )
+                # Log to mlflow using a child run for each configuration (like in hyperparameter optimization)
+                if mlflow_logging:
+                    with mlflow.start_run(
+                        nested=True,
+                        run_name=f"{risks_model.__class__.__name__},{censoring_model.__class__.__name__}",
+                    ):
+                        mlflow.log_params(
+                            {
+                                "risks_model": risks_model.__class__.__name__,
+                                "censoring_model": censoring_model.__class__.__name__,
+                            }
+                        )
+                        mlflow.log_metric("loss", loss)
+
                 if verbose >= 3:
                     print(
                         f"({risks_model.__class__.__name__} | {censoring_model.__class__.__name__}): {loss}"
