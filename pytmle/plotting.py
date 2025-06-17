@@ -5,6 +5,7 @@ import numpy as np
 import pandas as pd
 from typing import Optional, Generator, Tuple, List
 
+
 def initialize_subplots(target_events: np.ndarray) -> tuple:
     num_events = len(target_events)
     num_cols = min(3, num_events)
@@ -46,7 +47,9 @@ def plot_risks(
         ax = axes[i]
         used_colors = []
         for group, color in zip(groups, [color_0, color_1]):
-            time = tmle_est[(tmle_est["Event"] == event) & (tmle_est["Group"] == group)]["Time"].values
+            time = tmle_est[
+                (tmle_est["Event"] == event) & (tmle_est["Group"] == group)
+            ]["Time"].values
             pt_est = tmle_est[
                 (tmle_est["Event"] == event) & (tmle_est["Group"] == group)
             ]["Pt Est"].values
@@ -70,31 +73,59 @@ def plot_risks(
             )
 
             if g_comp_est is not None:
-                assert all(time == g_comp_est[(g_comp_est["Event"] == event)  & (tmle_est["Group"] == group)]["Time"].values), "Target times do not match for TMLE and g-computation."
-                ate_estimates_g_comp = g_comp_est[(g_comp_est["Event"] == event)  & (tmle_est["Group"] == group)]["Pt Est"].values
+                assert all(
+                    time
+                    == g_comp_est[
+                        (g_comp_est["Event"] == event) & (tmle_est["Group"] == group)
+                    ]["Time"].values
+                ), "Target times do not match for TMLE and g-computation."
+                ate_estimates_g_comp = g_comp_est[
+                    (g_comp_est["Event"] == event) & (tmle_est["Group"] == group)
+                ]["Pt Est"].values
                 ax.scatter(
                     time, ate_estimates_g_comp, color=used_colors[-1], marker="x", s=100
                 )
 
         ax.set_title(f"Event {event}")
         ax.set_xlabel("Time")
-        ax.set_xlim(0, None)   
+        ax.set_xlim(0, None)
         ax.set_ylabel("Predicted Risk")
 
     # add legend
     if g_comp_est is not None:
-        l1_handle = [Line2D([], [], marker='o', color='black', markersize=6, linestyle='--', markerfacecolor='black', markeredgewidth=1.5),
-            Line2D([], [], marker='x', color="black", markersize=6, linestyle='')]
-        l1 = fig.legend(l1_handle, ["TMLE", "G-computation"], loc="upper right", title="Estimator", bbox_to_anchor=(1, 0.8))
-    l2_handle = [Line2D([], [], marker='', color=used_colors[0], markersize=6, linestyle='--'),
-        Line2D([], [], marker='', color=used_colors[1], markersize=6, linestyle='--')]
-    l2 = fig.legend(l2_handle, groups, loc='upper right', title='Group', bbox_to_anchor=(1, 0.9))
-    if g_comp_est is not None:    
+        l1_handle = [
+            Line2D(
+                [],
+                [],
+                marker="o",
+                color="black",
+                markersize=6,
+                linestyle="--",
+                markerfacecolor="black",
+                markeredgewidth=1.5,
+            ),
+            Line2D([], [], marker="x", color="black", markersize=6, linestyle=""),
+        ]
+        l1 = fig.legend(
+            l1_handle,
+            ["TMLE", "G-computation"],
+            loc="upper right",
+            title="Estimator",
+            bbox_to_anchor=(1, 0.8),
+        )
+    l2_handle = [
+        Line2D([], [], marker="", color=used_colors[0], markersize=6, linestyle="--"),
+        Line2D([], [], marker="", color=used_colors[1], markersize=6, linestyle="--"),
+    ]
+    l2 = fig.legend(
+        l2_handle, groups, loc="upper right", title="Group", bbox_to_anchor=(1, 0.9)
+    )
+    if g_comp_est is not None:
         fig.add_artist(l1)
 
     # unify y-axis limits across all subplots
     for ax in axes:
-        ax.set_ylim(0, max(np.concat(all_ci_upper)) * 1.1)
+        ax.set_ylim(0, max(np.concatenate(all_ci_upper)) * 1.1)
 
     return fig, axes
 
@@ -137,13 +168,13 @@ def plot_ate(
         ax.errorbar(time, mean, yerr=yerr, capsize=13, color="black", linestyle="")
 
         if g_comp_est is not None:
-            assert all(time == g_comp_est[g_comp_est["Event"] == event]["Time"].values), "Target times do not match for TMLE and g-computation."
-            ate_estimates_g_comp = g_comp_est[g_comp_est["Event"] == event]["Pt Est"].values
-            ax.scatter(time, 
-                ate_estimates_g_comp, 
-                color="black",
-                marker="x",
-                s=100)
+            assert all(
+                time == g_comp_est[g_comp_est["Event"] == event]["Time"].values
+            ), "Target times do not match for TMLE and g-computation."
+            ate_estimates_g_comp = g_comp_est[g_comp_est["Event"] == event][
+                "Pt Est"
+            ].values
+            ax.scatter(time, ate_estimates_g_comp, color="black", marker="x", s=100)
 
         ax.set_title(f"Event {event}")
         ax.set_xlabel("Time")
@@ -157,13 +188,30 @@ def plot_ate(
 
         # add legend
         if g_comp_est is not None:
-            l1_handle = [Line2D([], [], marker='o', color='black', markersize=6, linestyle='--', markerfacecolor='black', markeredgewidth=1.5),
-                 Line2D([], [], marker='x', color="black", markersize=6, linestyle='')]
-            l1 = fig.legend(l1_handle, ["TMLE", "G-computation"], loc="upper right", title="Estimator", bbox_to_anchor=(1, 0.8))
+            l1_handle = [
+                Line2D(
+                    [],
+                    [],
+                    marker="o",
+                    color="black",
+                    markersize=6,
+                    linestyle="--",
+                    markerfacecolor="black",
+                    markeredgewidth=1.5,
+                ),
+                Line2D([], [], marker="x", color="black", markersize=6, linestyle=""),
+            ]
+            l1 = fig.legend(
+                l1_handle,
+                ["TMLE", "G-computation"],
+                loc="upper right",
+                title="Estimator",
+                bbox_to_anchor=(1, 0.8),
+            )
 
     # unify y-axis limits across all subplots
-    min_y = min(np.concat(all_ci_lower))
-    max_y = max(np.concat(all_ci_upper))
+    min_y = min(np.concatenate(all_ci_lower))
+    max_y = max(np.concatenate(all_ci_upper))
     if max_y < 0:
         max_y *= 0.9
     else:
@@ -205,14 +253,21 @@ def plot_nuisance_weights(
         # vertical line for min_nuisance
         plt.axvline(x=min_nuisance, color="gray", linestyle="--", label="Min. Nuisance")
 
-        plt.suptitle(f'Nuisance weights at time t={t} for positivity check', fontsize=15)
-        if t==0:
-            plt.title('Weights close to 0 or 1 warn of possible positivity violations', fontsize=13)
+        plt.suptitle(
+            f"Nuisance weights at time t={t} for positivity check", fontsize=15
+        )
+        if t == 0:
+            plt.title(
+                "Weights close to 0 or 1 warn of possible positivity violations",
+                fontsize=13,
+            )
         else:
-            plt.title('Weights close to 0 warn of possible positivity violations', fontsize=13)
+            plt.title(
+                "Weights close to 0 warn of possible positivity violations", fontsize=13
+            )
         plt.xlabel(r"$\pi(a|w) \, G(t|a,w)$", fontsize=13)
-        plt.xlim(0,1)
-        plt.ylabel('Density', fontsize=13)
+        plt.xlim(0, 1)
+        plt.ylabel("Density", fontsize=13)
         plt.legend(title="Group")
 
         yield fig, ax, t
