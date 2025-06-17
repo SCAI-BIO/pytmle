@@ -34,6 +34,7 @@ class PyTMLE:
         key_0: int = 0,
         initial_estimates: Optional[Dict[int, InitialEstimates]] = None,
         verbose: int = 2,
+        mlflow_logging: bool = False,
     ):
         """
         Initialize the PyTMLE class.
@@ -62,6 +63,8 @@ class PyTMLE:
             Dict with pre-computed initial estimates for the two potential outcomes, which can be passed right to the second TMLE stage. Default is None.
         verbose : int, optional
             Verbosity level. 0: Absolutely so logging at all, 1: only warnings, 2: major execution steps, 3: execution steps, 4: everything for debugging. Default is 2.
+        mlflow_logging : bool, optional
+            Whether to log the model fitting process to MLflow. Default is False.
         """
         self._check_inputs(
             data,
@@ -103,6 +106,7 @@ class PyTMLE:
         self.norm_pn_eics = []
         self.models = {}
         self.state_learner_cv_fit = None
+        self.mlflow_logging = mlflow_logging
         if evalues_benchmark:
             if initial_estimates is not None and self.verbose >= 1:
                 warnings.warn(
@@ -281,6 +285,7 @@ class PyTMLE:
                 precomputed_event_free_survival=factual_event_free_survival,
                 precomputed_censoring_survival=factual_censoring_survival,
                 verbose=self.verbose,
+                mlflow_logging=self.mlflow_logging,
             )
             self.models.update(model_dict)
             # update times if they were tranformed in the risk model
@@ -347,6 +352,7 @@ class PyTMLE:
                 key_1=self.key_1,
                 key_0=self.key_0,
                 verbose=self.verbose,
+                mlflow_logging=False,
             )
         (
             self._updated_estimates,
@@ -364,6 +370,7 @@ class PyTMLE:
             one_step_eps=one_step_eps,
             g_comp=self.g_comp,
             verbose=self.verbose,
+            mlflow_logging=self.mlflow_logging,
         )  # type: ignore
 
     def fit(

@@ -1,4 +1,5 @@
 from typing import Dict, List, Optional, Tuple
+import mlflow
 import numpy as np
 import pandas as pd
 import warnings
@@ -144,6 +145,7 @@ def tmle_loop(
     one_step_eps,
     norm_pn_eic,
     verbose,
+    mlflow_logging: bool = False,
 ) -> Tuple[Dict[int, UpdatedEstimates], List[float], bool, int]:
     """
     Perform the TMLE update procedure for estimates.
@@ -158,6 +160,7 @@ def tmle_loop(
         one_step_eps (float): Initial epsilon for one-step update.
         norm_pn_eic (float): Norm of the efficient influence curve.
         verbose (int): Sets logging level.
+        mlflow_logging (bool): Whether to log metrics to MLflow.
 
     Returns:
         dict: Updated estimates after TMLE procedure.
@@ -171,6 +174,9 @@ def tmle_loop(
 
     step_num = 0
     iter_num = 0
+
+    if mlflow_logging:
+        mlflow.start_run(run_name="tmle_update")
 
     while step_num < max_updates and iter_num < max_updates * 2:
         iter_num += 1
@@ -248,6 +254,8 @@ def tmle_loop(
         step_num += 1
         if verbose >= 3:
             print(f"Step {step_num}: Norm PnEIC improved to {new_norm_pn_eic}.")
+        if mlflow_logging:
+            mlflow.log_metric("norm_pneic", new_norm_pn_eic, step=step_num)
 
         # Update estimates
         estimates.update(new_ests)
@@ -286,6 +294,7 @@ def tmle_update(
     g_comp: bool = False,
     one_step_eps: float = 0.1,
     verbose: int = 2,
+    mlflow_logging: bool = False,
 ) -> Tuple[Dict[int, UpdatedEstimates], List[float], bool, int]:
     """
     Function to update the initial estimates using the TMLE algorithm.
@@ -312,7 +321,8 @@ def tmle_update(
         Initial epsilon for the one-step update. Default is 0.1.
     verbose : int
         Verbosity level. 0: Absolutely so logging at all, 1: only warnings, 2: major execution steps, 3: execution steps, 4: everything for debugging. Default is 2.
-
+    mlflow_logging : bool
+        Whether to log metrics to MLflow. Default is False.
 
     Returns
     -------
@@ -370,4 +380,5 @@ def tmle_update(
         one_step_eps=one_step_eps,
         norm_pn_eic=norm_pn_eic,
         verbose=verbose,
+        mlflow_logging=mlflow_logging,
     )

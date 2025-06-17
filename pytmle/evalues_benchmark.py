@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 from scipy.stats import norm
 from typing import Generator, List, Tuple
 
+
 class EvaluesBenchmark:
     """
     Class to compute observed covariate E-values like proposed by McGowan and Greevy (2020) (https://arxiv.org/pdf/2011.07030).
@@ -21,7 +22,7 @@ class EvaluesBenchmark:
             # set to None to avoid infinite recursion
             self.model.evalues_benchmark = None
             self.benchmark_features = model._feature_names
-            self.skip_benchmark = False 
+            self.skip_benchmark = False
         else:
             self.skip_benchmark = True
         self.benchmarking_results = None
@@ -36,7 +37,11 @@ class EvaluesBenchmark:
     ):
         self.rr_full = full_model.predict("rr", alpha=alpha)
         self.rd_full = full_model.predict("rd", alpha=alpha)
-        self.rr_full["Limiting bound"] = np.where(self.rr_full["E_value CI limit"]=="lower", self.rr_full["CI_lower"], self.rr_full["CI_upper"])
+        self.rr_full["Limiting bound"] = np.where(
+            self.rr_full["E_value CI limit"] == "lower",
+            self.rr_full["CI_lower"],
+            self.rr_full["CI_upper"],
+        )
         # transformed RR and CIs proposed by VanderWeele and Ding (2017)
         self.rd_full["RR"] = np.exp(0.91 * self.rd_full["Pt Est"])
         self.rd_full["Limiting bound"] = np.where(
@@ -76,6 +81,7 @@ class EvaluesBenchmark:
             tmle = deepcopy(self.model)
             # print less for each E-value benchmark model
             tmle.verbose = self.verbose - 1 if self.verbose < 4 else self.verbose
+            tmle.mlflow_logging = False
             # feature is not dropped but set to np.nan for model-specific handling
             tmle._X[:, i] = np.nan
             tmle.fit(max_updates=max_updates, **kwargs)
@@ -83,7 +89,11 @@ class EvaluesBenchmark:
             rr = tmle.predict("rr")
             rr["type"] = "rr"
             rr["benchmark_feature"] = f
-            ci_rr = np.where(self.rr_full["E_value CI limit"]=="lower", rr["CI_lower"], rr["CI_upper"])
+            ci_rr = np.where(
+                self.rr_full["E_value CI limit"] == "lower",
+                rr["CI_lower"],
+                rr["CI_upper"],
+            )
             rr["E_value measured"] = [
                 self._observed_covariate_evalue(ci, ci_new)
                 for ci, ci_new in zip(self.rr_full["Limiting bound"], ci_rr)
@@ -183,7 +193,7 @@ class EvaluesBenchmark:
         else:
             ratio = ci / new_ci
 
-        return ratio + (ratio * (ratio - 1))**0.5
+        return ratio + (ratio * (ratio - 1)) ** 0.5
 
     def plot(
         self,
@@ -234,8 +244,10 @@ class EvaluesBenchmark:
             "E_value measured (bootstrap)" if use_bootstrap else "E_value measured"
         )
         if ate_type == "rr":
-            full_df = self.rr_full[(self.rr_full["Time"] == target_time) & 
-                                 (self.rr_full["Event"] == target_event)]
+            full_df = self.rr_full[
+                (self.rr_full["Time"] == target_time)
+                & (self.rr_full["Event"] == target_event)
+            ]
             rr = full_df["Pt Est"].item()
             if self.benchmarking_results is not None:
                 benchmark_df = self.benchmarking_results[
@@ -247,8 +259,10 @@ class EvaluesBenchmark:
                     by=evalue_measured_key, ascending=False
                 )
         elif ate_type == "rd":
-            full_df = self.rd_full[(self.rd_full["Time"] == target_time) & 
-                                 (self.rd_full["Event"] == target_event)]
+            full_df = self.rd_full[
+                (self.rd_full["Time"] == target_time)
+                & (self.rd_full["Event"] == target_event)
+            ]
             # load the RD transformed to RR
             rr = full_df["RR"].item()
             if self.benchmarking_results is not None:
@@ -293,12 +307,9 @@ class EvaluesBenchmark:
         else:
             xy_limit = eval_est * 2
 
-        self._plot_contour(ax, 
-                           rr, 
-                           eval_est, 
-                           num_points_per_contour, 
-                           color_point_estimate, 
-                           xy_limit)
+        self._plot_contour(
+            ax, rr, eval_est, num_points_per_contour, color_point_estimate, xy_limit
+        )
 
         eval_ci = full_df[evalue_ci_key].item()
         if eval_ci is None and self.verbose >= 2:
@@ -335,7 +346,9 @@ class EvaluesBenchmark:
             )
             example_var = benchmark_df.iloc[0]
             obs_evalue = example_var[evalue_measured_key]
-            ax.text(obs_evalue, obs_evalue, example_var["benchmark_feature"], fontsize=8)
+            ax.text(
+                obs_evalue, obs_evalue, example_var["benchmark_feature"], fontsize=8
+            )
 
         ax.set(xlabel="$RR_{treatment-confounder}$", ylabel="$RR_{confounder-outcome}$")
         plt.ylim(1, xy_limit)
