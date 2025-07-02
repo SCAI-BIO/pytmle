@@ -64,7 +64,7 @@ class PyTMLE:
         verbose : int, optional
             Verbosity level. 0: Absolutely so logging at all, 1: only warnings, 2: major execution steps, 3: execution steps, 4: everything for debugging. Default is 2.
         mlflow_logging : bool, optional
-            Whether to log the model fitting process to MLflow. Default is False.
+            Whether to log the model fitting process to MLflow. Tracking URI and experiment should be set outside of the package, otherwise will log to default experiment in ./mlruns. Default is False.
         """
         self._check_inputs(
             data,

@@ -256,6 +256,7 @@ def tmle_loop(
             print(f"Step {step_num}: Norm PnEIC improved to {new_norm_pn_eic}.")
         if mlflow_logging:
             mlflow.log_metric("norm_pneic", new_norm_pn_eic, step=step_num)
+            mlflow.log_metric("working_eps", working_eps, step=step_num)
 
         # Update estimates
         estimates.update(new_ests)
@@ -280,6 +281,9 @@ def tmle_loop(
             f"Warning: TMLE has not converged by step {max_updates}. Estimates may not have the desired asymptotic properties.",
             RuntimeWarning,
         )
+    if mlflow_logging:
+        mlflow.end_run()
+
     return estimates, norm_pn_eics, False, step_num
 
 

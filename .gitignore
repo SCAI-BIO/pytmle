@@ -6,3 +6,4 @@ build/
 !docs/source/notebooks/*.ipynb
 .vscode
 mlruns/
+mlartifacts/
