@@ -111,6 +111,16 @@ class PycoxWrapper:
                     RuntimeWarning,
                 )
             self.wrapped_model.fit(input, target)
+        elif "hazardous" in type(self.wrapped_model).__module__:
+            # hazardous-based model
+            target = {"event": target[1], "duration": target[0]}
+            # all-missing columns do not need to be handled for SurvivalBoost which can deal with missings
+            if additional_inputs is not None and self.verbose >= 1:
+                warnings.warn(
+                    "Additional inputs are not supported for SurvivalBoost and will be ignored.",
+                    RuntimeWarning,
+                )
+            self.wrapped_model.fit(input, target, times=np.unique(target["duration"]))
         else:
             # pycox-based model
             target = (target[0], target[1].astype(int))
@@ -138,6 +148,11 @@ class PycoxWrapper:
             if additional_inputs is not None:
                 input = (input,) + additional_inputs  # type: ignore
             surv = self.wrapped_model.predict_surv(input, **kwargs)
+        elif "hazardous" in type(self.wrapped_model).__module__:
+            # hazardous
+            surv = self.wrapped_model.predict_survival_function(input)
+            # ensure monotonicity (not automatically guaranteed by SurvivalBoost)
+            surv = np.minimum.accumulate(surv, axis=1)
         elif hasattr(self.wrapped_model, "predict_survival_function"):
             # scikit-survival
             input = self._handle_all_missing_columns(input, "remove")
@@ -169,6 +184,28 @@ class PycoxWrapper:
             if additional_inputs is not None:
                 input = (input,) + additional_inputs  # type: ignore
             cif = self.wrapped_model.predict_cif(input).swapaxes(0, 2)
+            lagged_surv_expanded = lagged_surv[..., np.newaxis]
+            lagged_surv_expanded = np.repeat(
+                lagged_surv_expanded, cif.shape[-1], axis=-1
+            )
+            if np.any(lagged_surv_expanded == 0):
+                raise ValueError(
+                    "Zero values found in estimate of survival function, cannot derive hazards from CIF."
+                )
+            haz = np.diff(cif, prepend=0, axis=1) / lagged_surv_expanded
+            cum_haz = np.cumsum(haz, axis=1)
+            if cum_haz.shape[2] > len(np.unique(self.all_events)) - 1:
+                raise RuntimeError(
+                    f"CIF output has {cum_haz.shape[2]} causes of failure, but only {len(np.unique(self.all_events)) - 1} are present in the data."
+                )
+        elif "hazardous" in type(self.wrapped_model).__module__:
+            # SurvivalBoost
+            pred = self.wrapped_model.predict_cumulative_incidence(input).swapaxes(1, 2)
+            # ensure monotonicity (not automatically guaranteed by SurvivalBoost)
+            surv, cif = pred[..., 0], pred[..., 1:]
+            surv = np.minimum.accumulate(surv, axis=1)
+            cif = np.maximum.accumulate(cif, axis=1)
+            lagged_surv = np.column_stack([np.ones((surv.shape[0], 1)), surv[:, :-1]])
             lagged_surv_expanded = lagged_surv[..., np.newaxis]
             lagged_surv_expanded = np.repeat(
                 lagged_surv_expanded, cif.shape[-1], axis=-1

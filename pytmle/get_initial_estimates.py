@@ -468,7 +468,11 @@ def cross_fit_risk_model(
         X_val_f = np.column_stack((trt_val, X_val)).astype(np.float32)
 
         if risks_model is not None:
-            if len(np.unique(event_times)) <= 2 or hasattr(risks_model, "predict_cif"):
+            if (
+                len(np.unique(event_times)) <= 2
+                or hasattr(risks_model, "predict_cif")
+                or hasattr(risks_model, "predict_cumulative_incidence")
+            ):
                 model_i = PycoxWrapper(
                     deepcopy(risks_model),
                     labtrans=labtrans,

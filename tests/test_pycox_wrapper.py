@@ -8,18 +8,25 @@ import torchtuples as tt
 from pycox.models import CoxPH
 from sksurv.linear_model import CoxPHSurvivalAnalysis
 from sksurv.ensemble import RandomSurvivalForest, GradientBoostingSurvivalAnalysis
+from hazardous import SurvivalBoost
 
 
 def deepsurv(**kwargs):
-    in_features = 4 # x1, x2, x3, group
+    in_features = 4  # x1, x2, x3, group
     num_nodes = [32, 32]
     out_features = 1
     batch_norm = True
     dropout = 0.1
     output_bias = False
 
-    net = tt.practical.MLPVanilla(in_features, num_nodes, out_features, batch_norm,
-                                dropout, output_bias=output_bias)
+    net = tt.practical.MLPVanilla(
+        in_features,
+        num_nodes,
+        out_features,
+        batch_norm,
+        dropout,
+        output_bias=output_bias,
+    )
     return CoxPH(net, tt.optim.Adam)
 
 
@@ -35,14 +42,25 @@ def gb(**kwargs):
     return GradientBoostingSurvivalAnalysis(n_estimators=10, random_state=42)
 
 
-@pytest.mark.parametrize("get_model", ["deepsurv", "coxph", "rsf", "gb"])
+def sb(**kwargs):
+    return SurvivalBoost(
+        n_iter=10,
+        random_state=42,
+    )
+
+
+@pytest.mark.parametrize("get_model", ["deepsurv", "coxph", "rsf", "gb", "sb"])
 def test_fit(mock_main_class_inputs, get_model):
     model = eval(get_model)()
     df = mock_main_class_inputs["data"]
     X = df[["group", "x1", "x2", "x3"]].astype(np.float32)
     y = df[["event_time", "event_indicator"]].astype(np.float32)
 
-    if not hasattr(model, "predict_cif") and len(np.unique(y["event_indicator"])) > 2:
+    if (
+        not hasattr(model, "predict_cif")
+        and not hasattr(model, "predict_cumulative_incidence")
+        and len(np.unique(y["event_indicator"])) > 2
+    ):
         wrapper = PycoxWrapperCauseSpecific(
             model,
             labtrans=None,
@@ -63,7 +81,7 @@ def test_fit(mock_main_class_inputs, get_model):
     assert wrapper.fit_times is not None
 
 
-@pytest.mark.parametrize("get_model", ["deepsurv", "coxph", "rsf", "gb"])
+@pytest.mark.parametrize("get_model", ["deepsurv", "coxph", "rsf", "gb", "sb"])
 def test_predict(mock_main_class_inputs, get_model):
     model = eval(get_model)()
     df = mock_main_class_inputs["data"]
@@ -73,7 +91,11 @@ def test_predict(mock_main_class_inputs, get_model):
 
     X = df[["group", "x1", "x2", "x3"]].astype(np.float32)
     y = df[["event_time", "event_indicator"]].astype(np.float32)
-    if not hasattr(model, "predict_cif") and len(np.unique(y["event_indicator"])) > 2:
+    if (
+        not hasattr(model, "predict_cif")
+        and not hasattr(model, "predict_cumulative_incidence")
+        and len(np.unique(y["event_indicator"])) > 2
+    ):
         wrapper = PycoxWrapperCauseSpecific(
             model,
             labtrans=None,

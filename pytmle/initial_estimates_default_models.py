@@ -1,3 +1,4 @@
+from hazardous import SurvivalBoost
 import numpy as np
 from sksurv.linear_model import CoxPHSurvivalAnalysis
 from sksurv.ensemble import RandomSurvivalForest
@@ -47,6 +48,11 @@ def get_default_models(
     # Random survival forest
     risk_models.append(RandomSurvivalForest(n_jobs=-1))
     censoring_models.append(RandomSurvivalForest(n_jobs=-1))
+    label_transformers.append(None)
+
+    # SurvivalBoost model
+    risk_models.append(SurvivalBoost(show_progressbar=False))
+    censoring_models.append(SurvivalBoost(show_progressbar=False))
     label_transformers.append(None)
 
     return risk_models, censoring_models, label_transformers
