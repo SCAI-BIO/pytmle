@@ -470,6 +470,7 @@ class PyTMLE:
                 n_jobs=n_jobs,
                 stratified_bootstrap=stratified_bootstrap,
                 models=models,
+                propensity_score_models=propensity_score_models,
                 labtrans=labtrans,
                 n_epochs=n_epochs,
                 batch_size=batch_size,
