@@ -60,7 +60,7 @@ class PyTMLE:
         key_0 : int, optional
             The key representing the control group. Default is 0.
         initial_estimates : Optional[Dict[int, InitialEstimates]], optional
-            Dict with pre-computed initial estimates for the two potential outcomes, which can be passed right to the second TMLE stage. Default is None.
+            Dict with pre-computed initial estimates for the two potential outcomes, which can be passed right to the second TMLE stage. If pre-computed hazards are given, make sure they have three dimensions and the last dimension corresponds to the number of non-zero elements in col_event_indicator. Default is None.
         verbose : int, optional
             Verbosity level. 0: Absolutely so logging at all, 1: only warnings, 2: major execution steps, 3: execution steps, 4: everything for debugging. Default is 2.
         mlflow_logging : bool, optional
@@ -233,6 +233,26 @@ class PyTMLE:
         else:
             if self.verbose >= 2:
                 print("Using given hazard and event-free survival estimates")
+            if len(self._initial_estimates[self.key_0].hazards.shape) == 2:
+                # if hazards are not in the shape (n_samples, n_times, n_events)
+                # we assume that they are in the shape (n_samples, n_times)
+                self._initial_estimates[self.key_0].hazards = np.expand_dims(
+                    self._initial_estimates[self.key_0].hazards, -1
+                )
+            if len(self._initial_estimates[self.key_1].hazards.shape) == 2:
+                self._initial_estimates[self.key_1].hazards = np.expand_dims(
+                    self._initial_estimates[self.key_1].hazards, -1
+                )
+            if (
+                len(self.target_events)
+                != self._initial_estimates[self.key_0].hazards.shape[-1]
+            ) or (
+                len(self.target_events)
+                != self._initial_estimates[self.key_1].hazards.shape[-1]
+            ):
+                raise ValueError(
+                    f"The number of target events ({len(self.target_events)}) does not match the last dimension of hazards in the given initial estimates ({self._initial_estimates[self.key_0].hazards.shape[-1]},{self._initial_estimates[self.key_1].hazards.shape[-1]})."
+                )
             factual_event_free_survival = np.where(
                 np.expand_dims(self._group, 1) == 1,
                 self._initial_estimates[self.key_1].event_free_survival_function,  # type: ignore
