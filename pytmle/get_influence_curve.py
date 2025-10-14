@@ -6,7 +6,6 @@ from .estimates import UpdatedEstimates
 from .g_computation import get_g_comp
 
 
-
 def get_eic(
     estimates: Dict[int, UpdatedEstimates],
     event_times: np.ndarray,
@@ -161,7 +160,8 @@ def get_ic(
             # Check for overflow
             if np.any(np.isnan(ic_j_tau)) or np.any(np.isinf(ic_j_tau)):
                 raise RuntimeError(
-                    "IC overflow: either increase min_nuisance or specify a target estimand "
+                    f"IC overflow for intervention {l}, target event {j} and target time {tau}:"
+                    " either increase min_nuisance or specify a target estimand "
                     "(Target Event, Target Time, & Intervention) with more support in the data."
                 )
 
