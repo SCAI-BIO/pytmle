@@ -136,6 +136,7 @@ def ate_ratio(
     pred_ratios["Time"] = pred_risk_1["Time"]
     pred_ratios["Event"] = pred_risk_1["Event"]
     pred_ratios["Pt Est"] = pred_risk_1["Pt Est"] / pred_risk_0["Pt Est"]
+    pred_ratios["Converged"] = pred_risk_1["Converged"] & pred_risk_0["Converged"]
 
     if not g_comp:
         ic_1 = updated_estimates[key_1].ic.set_index(["Event", "Time"])
@@ -191,6 +192,7 @@ def ate_ratio(
             pred_ratios["E_value CI limit (bootstrap)"] = np.nan
     else:
         pred_ratios["SE"] = np.nan
+        pred_ratios["Converged"] = np.nan
         pred_ratios["CI_lower"] = np.nan
         pred_ratios["CI_upper"] = np.nan
         pred_ratios["p_value"] = np.nan
@@ -272,6 +274,7 @@ def ate_diff(
     pred_diffs["Time"] = pred_risk_1["Time"]
     pred_diffs["Event"] = pred_risk_1["Event"]
     pred_diffs["Pt Est"] = pred_risk_1["Pt Est"] - pred_risk_0["Pt Est"]
+    pred_diffs["Converged"] = pred_risk_1["Converged"] & pred_risk_0["Converged"]
 
     if not g_comp:
         ic_1 = updated_estimates[key_1].ic.set_index(["Event", "Time"])["IC"]
@@ -323,6 +326,7 @@ def ate_diff(
             pred_diffs["E_value CI limit (bootstrap)"] = np.nan
     else:
         pred_diffs["SE"] = np.nan
+        pred_diffs["Converged"] = np.nan
         pred_diffs["CI_lower"] = np.nan
         pred_diffs["CI_upper"] = np.nan
         pred_diffs["p_value"] = np.nan
