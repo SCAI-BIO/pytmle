@@ -55,6 +55,7 @@ def get_counterfactual_risks(
             ),
             on=["Event", "Time", "Group"],
             suffixes=("", "_bootstrap"),
+            how="left",
         )
 
     return pred_risk
@@ -179,6 +180,7 @@ def ate_ratio(
                 ),
                 on=["Event", "Time"],
                 suffixes=("", "_bootstrap"),
+                how="left",
             )
             _, evalues_ci_bs, evalues_ci_limit_bs = get_evalues_rr(
                 pred_ratios["Pt Est"],
@@ -313,6 +315,7 @@ def ate_diff(
                 ),
                 on=["Event", "Time"],
                 suffixes=("", "_bootstrap"),
+                how="left",
             )
             _, evalues_ci_bs, evalues_ci_limit_bs = get_evalues_rd(
                 rd=pred_diffs["Pt Est"],

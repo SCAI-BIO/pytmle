@@ -210,8 +210,8 @@ def plot_ate(
             )
 
     # unify y-axis limits across all subplots
-    min_y = min(np.concatenate(all_ci_lower))
-    max_y = max(np.concatenate(all_ci_upper))
+    min_y = np.nanmin(np.concatenate(all_ci_lower))
+    max_y = np.nanmax(np.concatenate(all_ci_upper))
     if max_y < 0:
         max_y *= 0.9
     else:

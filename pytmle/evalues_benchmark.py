@@ -87,6 +87,7 @@ class EvaluesBenchmark:
             tmle.fit(max_updates=max_updates, **kwargs)
             # get ratio estimates for the benchmark model
             rr = tmle.predict("rr")
+            # keep only estimates that converged
             rr["type"] = "rr"
             rr["benchmark_feature"] = f
             ci_rr = np.where(
@@ -94,12 +95,15 @@ class EvaluesBenchmark:
                 rr["CI_lower"],
                 rr["CI_upper"],
             )
+            ci_rr = ci_rr[rr["Converged"]]
+            rr = rr[rr["Converged"]]
             rr["E_value measured"] = [
                 self._observed_covariate_evalue(ci, ci_new)
                 for ci, ci_new in zip(self.rr_full["Limiting bound"], ci_rr)
             ]
             # get diff estimates for the benchmark model
             rd = tmle.predict("rd")
+            # keep only estimates that converged
             rd["type"] = "rd"
             rd["benchmark_feature"] = f
             ci_rd = np.where(
@@ -108,6 +112,8 @@ class EvaluesBenchmark:
                 np.exp(0.91 * rd["Pt Est"] - 0.91 * norm.ppf(1 - alpha / 2) * rd["SE"]),
                 np.exp(0.91 * rd["Pt Est"] + 0.91 * norm.ppf(1 - alpha / 2) * rd["SE"]),
             )
+            ci_rd = ci_rd[rd["Converged"]]
+            rd = rd[rd["Converged"]]
             rd["E_value measured"] = [
                 self._observed_covariate_evalue(ci, ci_new)
                 for ci, ci_new in zip(self.rd_full["Limiting bound"], ci_rd)
@@ -286,6 +292,7 @@ class EvaluesBenchmark:
                 "Requested E-value confidence intervals are not available."
             )
 
+        converged = full_df["Converged"].item()
         eval_est = full_df["E_value"].item()
         if rr < 1:
             rr = 1 / rr
@@ -354,7 +361,13 @@ class EvaluesBenchmark:
         plt.ylim(1, xy_limit)
         plt.xlim(1, xy_limit)
         plt.legend()
-        plt.title(f"E-value contours for event {target_event} at time {target_time}")
+        if converged:
+            conv_string = "converged"
+        else:
+            conv_string = "not converged!"
+        plt.title(
+            f"E-value contours for event {target_event} at time {target_time} ({conv_string})"
+        )
 
         return fig, ax
 
