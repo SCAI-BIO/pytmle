@@ -559,6 +559,7 @@ class PyTMLE:
         color_1: Optional[str] = None,
         color_0: Optional[str] = None,
         use_bootstrap: bool = False,
+        only_converged: bool = False,
     ) -> Optional[Tuple[Figure, np.ndarray]]:
         """
         Plot the counterfactual risks or average treatment effect (in terms of RR or RD).
@@ -579,6 +580,8 @@ class PyTMLE:
             Color for the potential outcome for "untreated". Pick None for standard matplotlib colors. Default is None.
         use_bootstrap : bool, optional
             Whether to use the bootstrapped bounds instead of the theoretical bounds. Default is False.
+        only_converged : bool, optional
+            Whether to plot only combinations of intervention/event/target time for which the TMLE update has converged. Default is False.
 
         Returns
         -------
@@ -593,6 +596,10 @@ class PyTMLE:
             pred = self.predict(type=type, alpha=alpha)
             if g_comp:
                 pred_g_comp = self.predict(type=type, alpha=alpha, g_comp=True)
+            if only_converged:
+                if g_comp:
+                    pred_g_comp = pred_g_comp[pred["Converged"]]
+                pred = pred[pred["Converged"]]
             fig, axes = plot_risks(
                 pred,
                 pred_g_comp if g_comp else None,
@@ -604,6 +611,10 @@ class PyTMLE:
             pred = self.predict(type=type, alpha=alpha)
             if g_comp:
                 pred_g_comp = self.predict(type=type, alpha=alpha, g_comp=True)
+            if only_converged:
+                if g_comp:
+                    pred_g_comp = pred_g_comp[pred["Converged"]]
+                pred = pred[pred["Converged"]]
             fig, axes = plot_ate(
                 pred,
                 pred_g_comp if g_comp else None,
