@@ -1,6 +1,7 @@
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
 import seaborn as sns
+from sklearn.metrics import brier_score_loss
 import numpy as np
 import pandas as pd
 from typing import Optional, Generator, Tuple, List
@@ -271,3 +272,35 @@ def plot_nuisance_weights(
         plt.legend(title="Group")
 
         yield fig, ax, t
+
+
+def plot_propensity_score_calibration(
+    propensity_scores: np.ndarray,
+    gstar_obs: np.ndarray,
+    plot_size: Tuple[float, float],
+    rolling_window_size: int = 50,
+) -> tuple:
+    brier_score = brier_score_loss(gstar_obs, propensity_scores)
+    order = np.lexsort((propensity_scores,))
+
+    fig, ax = plt.subplots(figsize=plot_size)
+    plt.plot(
+        np.arange(len(order)),
+        pd.Series(gstar_obs[order]).rolling(window=rolling_window_size).mean(),
+        "k",
+        linewidth=3,
+        label=r"Empirical",
+    )
+    plt.plot(
+        np.arange(len(order)),
+        propensity_scores[order],
+        "r",
+        label="Estimated propensity scores \n(BS=%1.3f)" % brier_score,
+    )
+
+    plt.suptitle("Propensity Score Calibration Plot", fontsize=15)
+    plt.xlabel("Instances sorted according to estimated propensity scores", fontsize=13)
+    plt.ylabel("P(treated)", fontsize=13)
+    plt.legend(loc="upper left")
+
+    return fig, ax
