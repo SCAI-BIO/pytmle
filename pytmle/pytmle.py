@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 from matplotlib.figure import Figure
 import matplotlib.pyplot as plt
-from typing import Optional, List, Dict, Tuple
+from typing import Optional, List, Dict, Tuple, Literal
 
 from .estimates import InitialEstimates
 from .get_initial_estimates import fit_propensity_super_learner, fit_state_learner
@@ -186,6 +186,7 @@ class PyTMLE:
         models,
         labtrans,
         propensity_score_models,
+        propensity_score_calibration_method: Optional[Literal["isotonic", "sigmoid"]],
         additional_inputs: Optional[Tuple],
         n_epochs: int,
         batch_size: int,
@@ -215,6 +216,7 @@ class PyTMLE:
                     return_model=save_models,
                     base_learners=propensity_score_models,
                     verbose=self.verbose >= 4,
+                    calibration_method=propensity_score_calibration_method,
                 )
             )
             self.models.update(model_dict)
@@ -414,6 +416,9 @@ class PyTMLE:
         models=None,
         labtrans=None,
         propensity_score_models=None,
+        propensity_score_calibration_method: Optional[
+            Literal["isotonic", "sigmoid"]
+        ] = None,
         additional_inputs: Optional[Tuple] = None,
         n_epochs: int = 100,
         batch_size: int = 128,
@@ -449,6 +454,8 @@ class PyTMLE:
             A list of labtrans objects to use for the risk model (if required; e.g., discretizer for DeepHit). If not None, needs to be one object for all models, or one object per model. Default is None.
         propensity_score_models : Optional, optional
             A list of models to use for the propensity score stacking classifier. If None, use the default library. Default is None.
+        propensity_score_calibration_method : Optional[Literal["isotonic", "sigmoid"]], optional
+            The calibration method to use for the propensity score model. If None, no calibration is performed. Default is None.
         additional_inputs : Optional[Tuple], optional
             Additional inputs for the risk and censoring models. Can be tuple of torch.Tensors or np.ndarray, but has to be compatible with torchtuples. Default is None.
         n_epochs : int, optional
@@ -466,6 +473,7 @@ class PyTMLE:
             models=models,
             labtrans=labtrans,
             propensity_score_models=propensity_score_models,
+            propensity_score_calibration_method=propensity_score_calibration_method,
             additional_inputs=additional_inputs,
             n_epochs=n_epochs,
             batch_size=batch_size,
@@ -496,6 +504,7 @@ class PyTMLE:
                 stratified_bootstrap=stratified_bootstrap,
                 models=models,
                 propensity_score_models=propensity_score_models,
+                propensity_score_calibration_method=propensity_score_calibration_method,
                 labtrans=labtrans,
                 n_epochs=n_epochs,
                 batch_size=batch_size,
