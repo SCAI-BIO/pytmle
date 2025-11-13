@@ -15,7 +15,12 @@ from .predict_ate import (
     ate_diff,
 )
 from .evalues_benchmark import EvaluesBenchmark
-from .plotting import plot_risks, plot_ate, plot_nuisance_weights
+from .plotting import (
+    plot_risks,
+    plot_ate,
+    plot_nuisance_weights,
+    plot_propensity_score_calibration,
+)
 from .bootstrap import bootstrap_tmle_loop
 
 
@@ -680,9 +685,46 @@ class PyTMLE:
                 plt.savefig(
                     f"{save_dir_path}/nuisance_weights_t{time}.svg", bbox_inches="tight"
                 )
+                plt.close()
             else:
                 plt.show()
+
+    def plot_propensity_score_calibration(
+        self,
+        save_dir_path: Optional[str] = None,
+        plot_size: Tuple[float, float] = (6.4, 4.8),
+        rolling_window_size: int = 50,
+    ):
+        """
+        Plot the propensity score calibration (sorted propensity scores in comparison with empirically observed treatment probabilities).
+
+        Parameters
+        ----------
+        save_dir_path : Optional[str], optional
+            Path to directory to save the plot. If None, will simply display the plot. Default is None.
+        plot_size : Tuple[float, float], optional
+            Size of the plot. Default is (6.4, 4.8).
+        rolling_window_size : int, optional
+            Size of the rolling window for smoothing the observed treatment probabilities. Default is 50.
+        """
+
+        if save_dir_path is not None and not os.path.exists(save_dir_path):
+            os.makedirs(save_dir_path)
+
+        plot_propensity_score_calibration(
+            propensity_scores=self._initial_estimates[self.key_1].propensity_scores,  # type: ignore
+            gstar_obs=self._initial_estimates[self.key_1].g_star_obs,  # type: ignore
+            plot_size=plot_size,
+            rolling_window_size=rolling_window_size,
+        )
+
+        if save_dir_path is not None:
+            plt.savefig(
+                f"{save_dir_path}/propensity_score_calibration.svg", bbox_inches="tight"
+            )
             plt.close()
+        else:
+            plt.show()
 
     def plot_norm_pn_eic(
         self,
@@ -707,9 +749,9 @@ class PyTMLE:
         ax.set_ylabel("||PnEIC||")
         if save_dir_path is not None:
             plt.savefig(save_dir_path, bbox_inches="tight")
+            plt.close()
         else:
             plt.show()
-        plt.close()
 
     def plot_evalue_contours(
         self,
@@ -787,6 +829,6 @@ class PyTMLE:
                     f"{save_dir_path}/evalue_contours_{event}_t{time}.svg",
                     bbox_inches="tight",
                 )
+                plt.close()
             else:
                 plt.show()
-            plt.close()
