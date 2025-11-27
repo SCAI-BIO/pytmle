@@ -12,7 +12,7 @@ def test_predict_mean_risks(mock_updated_estimates):
         assert isinstance(mock_updated_estimates[k], UpdatedEstimates)
         result = mock_updated_estimates[k].predict_mean_risks(g_comp=g_comp)
         assert isinstance(result, pd.DataFrame)
-        assert set(result.columns) == {"Time", "Event", "Pt Est", "SE"}
+        assert set(result.columns) == {"Time", "Event", "Pt Est", "SE", "Converged"}
         assert result["SE"].isna().all() == g_comp # should be all NA for g_comp=True
         assert len(result) == len(mock_updated_estimates[k].target_times) * len(mock_updated_estimates[k].target_events)
         g_comp = not g_comp # invert g_comp flag for next iteration to check both behaviors
@@ -39,7 +39,16 @@ def test_get_counterfactual_risks(mock_updated_estimates):
         result = get_counterfactual_risks(mock_updated_estimates, g_comp=g_comp, key_1=1, key_0=0)
         results[estimator] = result
         assert isinstance(result, pd.DataFrame)
-        assert set(result.columns) == {"Time", "Event", "Pt Est", "SE", "CI_lower", "CI_upper", "Group"}
+        assert set(result.columns) == {
+            "Time",
+            "Event",
+            "Pt Est",
+            "SE",
+            "Converged",
+            "CI_lower",
+            "CI_upper",
+            "Group",
+        }
         assert result["SE"].isna().all() == g_comp # should be all NA for g_comp=True
         assert result["CI_lower"].isna().all() == g_comp # should be all NA for g_comp=True
         assert result["CI_upper"].isna().all() == g_comp # should be all NA for g_comp=True
@@ -66,6 +75,7 @@ def test_ate_ratio(mock_updated_estimates):
             "Event",
             "Pt Est",
             "SE",
+            "Converged",
             "CI_lower",
             "CI_upper",
             "p_value",
@@ -104,6 +114,7 @@ def test_ate_diff(mock_updated_estimates):
             "Event",
             "Pt Est",
             "SE",
+            "Converged",
             "CI_lower",
             "CI_upper",
             "p_value",

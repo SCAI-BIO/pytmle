@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 from matplotlib.figure import Figure
 import matplotlib.pyplot as plt
-from typing import Optional, List, Dict, Tuple
+from typing import Optional, List, Dict, Tuple, Literal
 
 from .estimates import InitialEstimates
 from .get_initial_estimates import fit_propensity_super_learner, fit_state_learner
@@ -15,7 +15,12 @@ from .predict_ate import (
     ate_diff,
 )
 from .evalues_benchmark import EvaluesBenchmark
-from .plotting import plot_risks, plot_ate, plot_nuisance_weights
+from .plotting import (
+    plot_risks,
+    plot_ate,
+    plot_nuisance_weights,
+    plot_propensity_score_calibration,
+)
 from .bootstrap import bootstrap_tmle_loop
 
 
@@ -60,7 +65,7 @@ class PyTMLE:
         key_0 : int, optional
             The key representing the control group. Default is 0.
         initial_estimates : Optional[Dict[int, InitialEstimates]], optional
-            Dict with pre-computed initial estimates for the two potential outcomes, which can be passed right to the second TMLE stage. Default is None.
+            Dict with pre-computed initial estimates for the two potential outcomes, which can be passed right to the second TMLE stage. If pre-computed hazards are given, make sure they have three dimensions and the last dimension corresponds to the number of non-zero elements in col_event_indicator. Default is None.
         verbose : int, optional
             Verbosity level. 0: Absolutely so logging at all, 1: only warnings, 2: major execution steps, 3: execution steps, 4: everything for debugging. Default is 2.
         mlflow_logging : bool, optional
@@ -181,6 +186,7 @@ class PyTMLE:
         models,
         labtrans,
         propensity_score_models,
+        propensity_score_calibration_method: Optional[Literal["isotonic", "sigmoid"]],
         additional_inputs: Optional[Tuple],
         n_epochs: int,
         batch_size: int,
@@ -210,6 +216,7 @@ class PyTMLE:
                     return_model=save_models,
                     base_learners=propensity_score_models,
                     verbose=self.verbose >= 4,
+                    calibration_method=propensity_score_calibration_method,
                 )
             )
             self.models.update(model_dict)
@@ -233,6 +240,26 @@ class PyTMLE:
         else:
             if self.verbose >= 2:
                 print("Using given hazard and event-free survival estimates")
+            if len(self._initial_estimates[self.key_0].hazards.shape) == 2:
+                # if hazards are not in the shape (n_samples, n_times, n_events)
+                # we assume that they are in the shape (n_samples, n_times)
+                self._initial_estimates[self.key_0].hazards = np.expand_dims(
+                    self._initial_estimates[self.key_0].hazards, -1
+                )
+            if len(self._initial_estimates[self.key_1].hazards.shape) == 2:
+                self._initial_estimates[self.key_1].hazards = np.expand_dims(
+                    self._initial_estimates[self.key_1].hazards, -1
+                )
+            if (
+                len(self.target_events)
+                != self._initial_estimates[self.key_0].hazards.shape[-1]
+            ) or (
+                len(self.target_events)
+                != self._initial_estimates[self.key_1].hazards.shape[-1]
+            ):
+                raise ValueError(
+                    f"The number of target events ({len(self.target_events)}) does not match the last dimension of hazards in the given initial estimates ({self._initial_estimates[self.key_0].hazards.shape[-1]},{self._initial_estimates[self.key_1].hazards.shape[-1]})."
+                )
             factual_event_free_survival = np.where(
                 np.expand_dims(self._group, 1) == 1,
                 self._initial_estimates[self.key_1].event_free_survival_function,  # type: ignore
@@ -389,6 +416,9 @@ class PyTMLE:
         models=None,
         labtrans=None,
         propensity_score_models=None,
+        propensity_score_calibration_method: Optional[
+            Literal["isotonic", "sigmoid"]
+        ] = None,
         additional_inputs: Optional[Tuple] = None,
         n_epochs: int = 100,
         batch_size: int = 128,
@@ -424,6 +454,8 @@ class PyTMLE:
             A list of labtrans objects to use for the risk model (if required; e.g., discretizer for DeepHit). If not None, needs to be one object for all models, or one object per model. Default is None.
         propensity_score_models : Optional, optional
             A list of models to use for the propensity score stacking classifier. If None, use the default library. Default is None.
+        propensity_score_calibration_method : Optional[Literal["isotonic", "sigmoid"]], optional
+            The calibration method to use for the propensity score model. If None, no calibration is performed. Default is None.
         additional_inputs : Optional[Tuple], optional
             Additional inputs for the risk and censoring models. Can be tuple of torch.Tensors or np.ndarray, but has to be compatible with torchtuples. Default is None.
         n_epochs : int, optional
@@ -441,6 +473,7 @@ class PyTMLE:
             models=models,
             labtrans=labtrans,
             propensity_score_models=propensity_score_models,
+            propensity_score_calibration_method=propensity_score_calibration_method,
             additional_inputs=additional_inputs,
             n_epochs=n_epochs,
             batch_size=batch_size,
@@ -471,6 +504,7 @@ class PyTMLE:
                 stratified_bootstrap=stratified_bootstrap,
                 models=models,
                 propensity_score_models=propensity_score_models,
+                propensity_score_calibration_method=propensity_score_calibration_method,
                 labtrans=labtrans,
                 n_epochs=n_epochs,
                 batch_size=batch_size,
@@ -539,6 +573,7 @@ class PyTMLE:
         color_1: Optional[str] = None,
         color_0: Optional[str] = None,
         use_bootstrap: bool = False,
+        only_converged: bool = False,
     ) -> Optional[Tuple[Figure, np.ndarray]]:
         """
         Plot the counterfactual risks or average treatment effect (in terms of RR or RD).
@@ -559,6 +594,8 @@ class PyTMLE:
             Color for the potential outcome for "untreated". Pick None for standard matplotlib colors. Default is None.
         use_bootstrap : bool, optional
             Whether to use the bootstrapped bounds instead of the theoretical bounds. Default is False.
+        only_converged : bool, optional
+            Whether to plot only combinations of intervention/event/target time for which the TMLE update has converged. Default is False.
 
         Returns
         -------
@@ -573,6 +610,10 @@ class PyTMLE:
             pred = self.predict(type=type, alpha=alpha)
             if g_comp:
                 pred_g_comp = self.predict(type=type, alpha=alpha, g_comp=True)
+            if only_converged:
+                if g_comp:
+                    pred_g_comp = pred_g_comp[pred["Converged"]]
+                pred = pred[pred["Converged"]]
             fig, axes = plot_risks(
                 pred,
                 pred_g_comp if g_comp else None,
@@ -584,6 +625,10 @@ class PyTMLE:
             pred = self.predict(type=type, alpha=alpha)
             if g_comp:
                 pred_g_comp = self.predict(type=type, alpha=alpha, g_comp=True)
+            if only_converged:
+                if g_comp:
+                    pred_g_comp = pred_g_comp[pred["Converged"]]
+                pred = pred[pred["Converged"]]
             fig, axes = plot_ate(
                 pred,
                 pred_g_comp if g_comp else None,
@@ -649,9 +694,46 @@ class PyTMLE:
                 plt.savefig(
                     f"{save_dir_path}/nuisance_weights_t{time}.svg", bbox_inches="tight"
                 )
+                plt.close()
             else:
                 plt.show()
+
+    def plot_propensity_score_calibration(
+        self,
+        save_dir_path: Optional[str] = None,
+        plot_size: Tuple[float, float] = (6.4, 4.8),
+        rolling_window_size: int = 50,
+    ):
+        """
+        Plot the propensity score calibration (sorted propensity scores in comparison with empirically observed treatment probabilities).
+
+        Parameters
+        ----------
+        save_dir_path : Optional[str], optional
+            Path to directory to save the plot. If None, will simply display the plot. Default is None.
+        plot_size : Tuple[float, float], optional
+            Size of the plot. Default is (6.4, 4.8).
+        rolling_window_size : int, optional
+            Size of the rolling window for smoothing the observed treatment probabilities. Default is 50.
+        """
+
+        if save_dir_path is not None and not os.path.exists(save_dir_path):
+            os.makedirs(save_dir_path)
+
+        plot_propensity_score_calibration(
+            propensity_scores=self._initial_estimates[self.key_1].propensity_scores,  # type: ignore
+            gstar_obs=self._initial_estimates[self.key_1].g_star_obs,  # type: ignore
+            plot_size=plot_size,
+            rolling_window_size=rolling_window_size,
+        )
+
+        if save_dir_path is not None:
+            plt.savefig(
+                f"{save_dir_path}/propensity_score_calibration.svg", bbox_inches="tight"
+            )
             plt.close()
+        else:
+            plt.show()
 
     def plot_norm_pn_eic(
         self,
@@ -676,9 +758,9 @@ class PyTMLE:
         ax.set_ylabel("||PnEIC||")
         if save_dir_path is not None:
             plt.savefig(save_dir_path, bbox_inches="tight")
+            plt.close()
         else:
             plt.show()
-        plt.close()
 
     def plot_evalue_contours(
         self,
@@ -756,6 +838,6 @@ class PyTMLE:
                     f"{save_dir_path}/evalue_contours_{event}_t{time}.svg",
                     bbox_inches="tight",
                 )
+                plt.close()
             else:
                 plt.show()
-            plt.close()

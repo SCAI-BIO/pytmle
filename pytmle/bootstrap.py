@@ -59,7 +59,7 @@ def single_boot(
     boot_event_times = event_times[sample_indices]
     boot_event_indicator = event_indicator[sample_indices]
     # Call tmle_update
-    updated_estimates, _, converged, _ = tmle_update(
+    updated_estimates, _, _, _ = tmle_update(
         initial_estimates=boot_initial_estimates,
         event_times=boot_event_times,
         event_indicator=boot_event_indicator,
@@ -68,24 +68,23 @@ def single_boot(
         verbose=0,
         **kwargs,
     )
-    if not converged:
-        # if tmle_update did not converge, return None
-        return
     cf_risks = get_counterfactual_risks(updated_estimates, key_1=key_1, key_0=key_0)[
-        ["Event", "Time", "Group", "Pt Est"]
+        ["Event", "Time", "Group", "Pt Est", "Converged"]
     ]
     cf_risks["type"] = "risks"
     ate_ratios = ate_ratio(updated_estimates, key_1=key_1, key_0=key_0)[
-        ["Event", "Time", "Pt Est"]
+        ["Event", "Time", "Pt Est", "Converged"]
     ]
     ate_ratios["type"] = "rr"
     ate_ratios["Group"] = -1
     ate_diffs = ate_diff(updated_estimates, key_1=key_1, key_0=key_0)[
-        ["Event", "Time", "Pt Est"]
+        ["Event", "Time", "Pt Est", "Converged"]
     ]
     ate_diffs["type"] = "rd"
     ate_diffs["Group"] = -1
     result_df = pd.concat([cf_risks, ate_ratios, ate_diffs])
+    # keep only estimates that converged
+    result_df = result_df[result_df["Converged"]]
     return result_df
 
 
@@ -168,17 +167,6 @@ def bootstrap_tmle_loop(
             result = f.result()
             if result is not None:
                 results.append(result)
-    if len(results) == 0:
-        if verbose >= 1:
-            warnings.warn(
-                "Not a single bootstrap samples converged. Bootstrapped CIs will not be available.",
-                RuntimeWarning,
-            )
-        return None
-    if verbose >= 2:
-        print(
-            f"TMLE converged for {len(results)} out of {n_bootstrap} bootstrap samples."
-        )
     results_df = pd.concat(results)
     summary_df = (
         results_df.groupby(["type", "Event", "Time", "Group"])["Pt Est"].agg(

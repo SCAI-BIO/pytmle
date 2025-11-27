@@ -22,7 +22,7 @@ class InitialEstimates:
         times (np.ndarray): Array of time points (have to be available for all time-to-event functions).
         g_star_obs (np.ndarray): Observed treatment values (binary) (n_observations,).
         propensity_scores (Optional[np.ndarray]): Propensity scores (n_observations,).
-        hazards (Optional[np.ndarray]): Hazards per competing event (n_observations, times, n_events).
+        hazards (Optional[np.ndarray]): Hazards per competing event (n_observations, times, n_events). n_events must correspond to the number of non-zero events in the `col_event_indicator` of the given data frame.
         event_free_survival_function (Optional[np.ndarray]): Event-free survival function (n_observations, times).
         censoring_survival_function (Optional[np.ndarray]): Censoring survival function (n_observations, times).
     """
@@ -261,6 +261,7 @@ class UpdatedEstimates(InitialEstimates):
             # return g_comp_estimate from BEFORE the TMLE update loop (standard error not available)
             pred_risk = self.g_comp_est
             pred_risk["SE"] = np.nan
+            pred_risk["Converged"] = np.nan
         else:
             # return g_comp_estimate from AFTER the TMLE update loop
             if self.summ_eic is None or self.ic is None:
@@ -274,6 +275,9 @@ class UpdatedEstimates(InitialEstimates):
             )
             pred_risk = pred_risk.merge(self.summ_eic, on=["Event", "Time"])
             pred_risk["SE"] = pred_risk["seEIC"] / len(self) ** 0.5
-            pred_risk = pred_risk[["Event", "Time", "Risk", "SE"]]
+            pred_risk["Converged"] = (
+                pred_risk["PnEIC"] < pred_risk["seEIC/(sqrt(n)log(n))"]
+            )
+            pred_risk = pred_risk[["Event", "Time", "Risk", "SE", "Converged"]]
         pred_risk.rename(columns={"Risk": "Pt Est"}, inplace=True)
         return pred_risk
