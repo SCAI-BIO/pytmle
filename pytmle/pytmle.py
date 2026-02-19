@@ -437,7 +437,7 @@ class PyTMLE:
         one_step_eps : float
             Initial epsilon for the one-step update. Default is 0.1.
         save_models : bool, optional
-            Whether to save the models used for the initial estimates. Default is False.
+            Whether to store the models used for the initial estimates in a dictionary in self.models. Useful if you want to evaluate them later on. Default is False.
         alpha : float, optional
             The alpha level for confidence intervals (relevant only for E-value benchmark). Default is 0.05.
         bootstrap : bool, optional
