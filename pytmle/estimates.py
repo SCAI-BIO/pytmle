@@ -276,7 +276,7 @@ class UpdatedEstimates(InitialEstimates):
             pred_risk = pred_risk.merge(self.summ_eic, on=["Event", "Time"])
             pred_risk["SE"] = pred_risk["seEIC"] / len(self) ** 0.5
             pred_risk["Converged"] = (
-                pred_risk["PnEIC"] < pred_risk["seEIC/(sqrt(n)log(n))"]
+                abs(pred_risk["PnEIC"]) <= pred_risk["seEIC/(sqrt(n)log(n))"]
             )
             pred_risk = pred_risk[["Event", "Time", "Risk", "SE", "Converged"]]
         pred_risk.rename(columns={"Risk": "Pt Est"}, inplace=True)
