@@ -14,7 +14,7 @@ dependencies = [
     "pycox",
     "scikit-learn>=1.2.2",
     "scikit-survival>=0.21.0",
-    "seaborn>=0.11.2",
+    "seaborn>=0.11",
     "tqdm>=4.67.1",
 ]
 
