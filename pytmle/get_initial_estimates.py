@@ -1,6 +1,7 @@
 import mlflow
 import numpy as np
 import pandas as pd
+from sklearn.calibration import CalibratedClassifierCV
 from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import (
     RandomForestClassifier,
@@ -8,7 +9,7 @@ from sklearn.ensemble import (
     StackingClassifier,
 )
 from sklearn.model_selection import cross_val_predict, StratifiedKFold
-from typing import Tuple, Optional, Any, List
+from typing import Tuple, Optional, Any, List, Literal
 from copy import deepcopy
 import warnings
 
@@ -23,6 +24,7 @@ def fit_propensity_super_learner(
     base_learners: Optional[List],
     return_model: bool,
     verbose: int,
+    calibration_method: Optional[Literal["isotonic", "sigmoid"]] = None,
 ) -> Tuple[np.ndarray, np.ndarray, dict]:
     """
     Fit a stacking classifier to estimate the propensity scores.
@@ -41,6 +43,8 @@ def fit_propensity_super_learner(
         The base learners to use in the stacking classifier. If None, will use the default base learners.
     verbose: bool
         If true, will set verbosity to maximum level.
+    calibration_method : Optional[Literal["isotonic", "sigmoid"]]
+        The calibration method to use. If None, no calibration is performed. Default is None.
 
     Returns
     -------
@@ -66,6 +70,12 @@ def fit_propensity_super_learner(
         cv=cv_folds,
         verbose=10 if verbose else 0,
     )
+
+    if calibration_method is not None:
+        # Calibrate the super learner if requested (using "inner" cross-validation with same number of folds)
+        super_learner = CalibratedClassifierCV(
+            super_learner, cv=cv_folds, method=calibration_method
+        )
 
     # Use cross_val_predict to generate out-of-fold predictions
     pred = cross_val_predict(
