@@ -57,7 +57,7 @@ def update_hazards(
     one_step_eps,
     target_event,
     target_time,
-) -> np.ndarray:
+) -> Tuple[np.ndarray, dict]:
     """
     Update hazards using the clever covariate and one-step TMLE update.
 
@@ -75,8 +75,12 @@ def update_hazards(
 
     Returns:
         np.ndarray: Updated hazards.
+        dict: Dictionary of updates applied to each event type.
     """
+
     updated_hazards = np.zeros_like(hazards)
+
+    updates = {}
 
     # survival function needs to lagged for CIF calculation
     lagged_total_surv = np.column_stack(
@@ -129,10 +133,11 @@ def update_hazards(
                 update_term += clev_cov
 
         # Apply exponential update to the hazard function
-        updated_hazard = hazard * np.exp(update_term * one_step_eps / norm_pn_eic)
+        updates[l] = np.exp(update_term * one_step_eps / norm_pn_eic)
+        updated_hazard = hazard * updates[l]
         updated_hazards[..., l - 1] = updated_hazard
 
-    return updated_hazards
+    return updated_hazards, updates
 
 
 def tmle_loop(
@@ -185,11 +190,12 @@ def tmle_loop(
 
         # Get updated hazards and EICs
         new_ests = {}
+        updates_dict = {}
         for trt, est_a in estimates.items():
             eval_times = est_a.times
             if target_times is None:
                 target_times = est_a.target_times
-            new_hazards = update_hazards(
+            new_hazards, updates = update_hazards(
                 g_star=est_a.g_star_obs,
                 hazards=est_a.hazards,
                 total_surv=est_a.event_free_survival_function,
@@ -218,6 +224,8 @@ def tmle_loop(
                 g_star_obs=est_a.g_star_obs,
                 g_comp_est=est_a.g_comp_est,
             )
+
+            updates_dict[trt] = updates
 
         if verbose >= 4:
             print("Updated hazards and survival functions computed.")
@@ -254,9 +262,6 @@ def tmle_loop(
         step_num += 1
         if verbose >= 3:
             print(f"Step {step_num}: Norm PnEIC improved to {new_norm_pn_eic}.")
-        if mlflow_logging:
-            mlflow.log_metric("norm_pneic", new_norm_pn_eic, step=step_num)
-            mlflow.log_metric("working_eps", working_eps, step=step_num)
 
         # Update estimates
         estimates.update(new_ests)
@@ -269,6 +274,39 @@ def tmle_loop(
             lambda x: abs(x["PnEIC"]) <= x["seEIC/(sqrt(n)log(n))"],
             axis=1,
         )
+
+        if mlflow_logging:
+            mlflow.log_metric("norm_pneic", new_norm_pn_eic, step=step_num)
+            mlflow.log_metric("working_eps", working_eps, step=step_num)
+            for trt in [0, 1]:
+                for j in target_events:
+                    for tau in target_times:
+                        mlflow.log_metric(
+                            f"pn_eic_{j}_{tau}_{trt}",
+                            new_summ_eic[
+                                (new_summ_eic["Time"] == tau)
+                                & (new_summ_eic["Event"] == j)
+                                & (new_summ_eic["trt"] == trt)
+                            ]["PnEIC"].item(),
+                            step=step_num,
+                        )
+                        mlflow.log_metric(
+                            f"converged_{j}_{tau}_{trt}",
+                            new_summ_eic[
+                                (new_summ_eic["Time"] == tau)
+                                & (new_summ_eic["Event"] == j)
+                                & (new_summ_eic["trt"] == trt)
+                            ]["check"].item(),
+                            step=step_num,
+                        )
+                        mlflow.log_metric(
+                            f"mean_update_{j}_{tau}_{trt}",
+                            updates_dict[trt][j][
+                                estimates[trt].g_star_obs == 1,
+                                estimates[trt].times == tau,
+                            ].mean(),
+                            step=step_num,
+                        )
 
         if all(new_summ_eic["check"]):
             if verbose >= 2:
