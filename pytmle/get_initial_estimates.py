@@ -13,7 +13,7 @@ from typing import Tuple, Optional, Any, List, Literal
 from copy import deepcopy
 import warnings
 
-from .pycox_wrapper import PycoxWrapper, PycoxWrapperCauseSpecific
+from .pycox_wrapper import wrap_model
 from .initial_estimates_default_models import get_default_models
 
 
@@ -478,28 +478,14 @@ def cross_fit_risk_model(
         X_val_f = np.column_stack((trt_val, X_val)).astype(np.float32)
 
         if risks_model is not None:
-            if len(np.unique(event_indicator)) <= 2 or hasattr(risks_model, "predict_cif"):
-                model_i = PycoxWrapper(
-                    deepcopy(risks_model),
-                    labtrans=labtrans,
-                    all_times=event_times,
-                    all_events=event_indicator,
-                    input_size=X.shape[1] + 1,
-                    verbose=verbose,
-                )
-            else:
-                if verbose:
-                    print(
-                        f"Fitting cause-specific model because {risks_model.__class__.__name__} does not support CIF."
-                    )
-                model_i = PycoxWrapperCauseSpecific(
-                    deepcopy(risks_model),
-                    labtrans=labtrans,
-                    all_times=event_times,
-                    all_events=event_indicator,
-                    input_size=X.shape[1] + 1,
-                    verbose=verbose,
-                )
+            model_i = wrap_model(
+                deepcopy(risks_model),
+                labtrans=labtrans,
+                all_times=event_times,
+                all_events=event_indicator,
+                input_size=X.shape[1] + 1,
+                verbose=verbose,
+            )
             labels = (
                 event_times_train.astype(np.float32),
                 event_indicator_train.astype(int),
@@ -527,12 +513,13 @@ def cross_fit_risk_model(
                 X_val_f, additional_inputs_val
             )
         if censoring_model is not None:
-            model_i_censoring = PycoxWrapper(
+            model_i_censoring = wrap_model(
                 deepcopy(censoring_model),
                 labtrans=labtrans,
                 all_times=event_times,
                 all_events=event_indicator == 0,
                 input_size=X.shape[1] + 1,
+                verbose=verbose,
             )
             labels = (
                 event_times_train.astype(np.float32),

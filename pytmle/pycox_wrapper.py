@@ -5,9 +5,74 @@ from typing import Optional, Tuple
 import warnings
 
 
+def wrap_model(
+    model,
+    labtrans,
+    all_times: np.ndarray,
+    all_events: np.ndarray,
+    input_size: int = 0,
+    verbose: int = 2,
+):
+    """Wraps a survival analysis model from pycox, scikit-survival, or tausurv into a unified interface.
+    The function checks the type of the model and determines whether it supports competing risks.
+    If the model does not support competing risks and there are multiple event types in the data, it wraps the model in a cause-specific wrapper that fits one model per cause of failure.
+    """
+    if "pycox." in type(model).__module__ and hasattr(
+        model, "predict_cumulative_hazards"
+    ):
+        # pycox without competing risks (e.g., DeepSurv)
+        model_type = "pycox_single"
+        supports_cr = False
+    elif "pycox." in type(model).__module__ and hasattr(model, "predict_cif"):
+        # pycox with competing risks (e.g., DeepHit)
+        model_type = "pycox_cr"
+        supports_cr = True
+    elif "sksurv." in type(model).__module__:
+        # scikit-survival-based model
+        model_type = "sksurv"
+        supports_cr = False
+    elif "tausurv." in type(model).__module__:
+        from tausurv.predictor import SurvivalPredictor, CompetingRisksPredictor
+
+        if isinstance(model, CompetingRisksPredictor):
+            # tausurv-based model with competing risks
+            model_type = "tausurv_cr"
+            supports_cr = True
+        elif isinstance(model, SurvivalPredictor):
+            # tausurv-based model without competing risks
+            model_type = "tausurv_single"
+            supports_cr = False
+    else:
+        raise ValueError(f"Unsupported model type: {type(model).__module__}")
+
+    if not supports_cr and len(np.unique(all_events)) > 2:
+        print(
+            f"Fitting cause-specific model because {model.__class__.__name__} does not support competing risks."
+        )
+        return PycoxWrapperCauseSpecific(
+            wrapped_model=model,
+            labtrans=labtrans,
+            all_times=all_times,
+            all_events=all_events,
+            model_type=model_type,
+            input_size=input_size,
+            verbose=verbose,
+        )
+    else:
+        return PycoxWrapper(
+            wrapped_model=model,
+            labtrans=labtrans,
+            all_times=all_times,
+            all_events=all_events,
+            model_type=model_type,
+            input_size=input_size,
+            verbose=verbose,
+        )
+
+
 class PycoxWrapper:
     """
-    A wrapper class to unify the interface of different survival analysis libraries (pycox, scikit-survival)
+    A wrapper class to unify the interface of different survival analysis libraries (pycox, scikit-survival, tausurv)
     """
 
     def __init__(
@@ -16,6 +81,7 @@ class PycoxWrapper:
         labtrans,
         all_times: np.ndarray,
         all_events: np.ndarray,
+        model_type: str,
         input_size: int = 0,
         verbose: int = 2,
     ):
@@ -24,6 +90,7 @@ class PycoxWrapper:
         self.all_events = all_events
         self.input_size = input_size
         self.wrapped_model = wrapped_model
+        self.model_type = model_type
 
         if self.labtrans is not None:
             self.all_times, _ = self.labtrans.transform(self.all_times, self.all_events)
@@ -101,7 +168,7 @@ class PycoxWrapper:
         if self.labtrans is not None:
             target = self.labtrans.transform(*target)
         self.fit_times = target[0]
-        if "sksurv" in type(self.wrapped_model).__module__:
+        if self.model_type == "sksurv":
             # scikit-survival-based model
             target = Surv.from_arrays(target[1], target[0])
             input = self._handle_all_missing_columns(input, "remove")
@@ -111,7 +178,7 @@ class PycoxWrapper:
                     RuntimeWarning,
                 )
             self.wrapped_model.fit(input, target)
-        else:
+        elif self.model_type in ["pycox_single", "pycox_cr"]:
             # pycox-based model
             target = (target[0], target[1].astype(int))
             input = self._handle_all_missing_columns(input, "zero")
@@ -121,6 +188,18 @@ class PycoxWrapper:
             # Cox-like models in pycox require the baseline hazard to be computed after fitting
             if hasattr(self.wrapped_model, "compute_baseline_hazards"):
                 self.wrapped_model.compute_baseline_hazards()
+        elif self.model_type in ["tausurv_single", "tausurv_cr"]:
+            # tausurv-based model
+            event_time, event_indicator = target
+            input = self._handle_all_missing_columns(input, "remove")
+            if additional_inputs is not None and self.verbose >= 1:
+                warnings.warn(
+                    "Additional inputs are not supported for tausurv models and will be ignored.",
+                    RuntimeWarning,
+                )
+            self.wrapped_model.fit(
+                X=input, event_time=event_time, event_indicator=event_indicator
+            )
         self.fitted = True
 
     def predict_surv(
@@ -132,18 +211,26 @@ class PycoxWrapper:
         """Predict survival function for a given input" """
         if not self.fitted:
             raise ValueError("Model has not been fitted")
-        if hasattr(self.wrapped_model, "predict_surv"):
+        if self.model_type in ["pycox_single", "pycox_cr"]:
             # pycox
             input = self._handle_all_missing_columns(input, "zero")
             if additional_inputs is not None:
                 input = (input,) + additional_inputs  # type: ignore
             surv = self.wrapped_model.predict_surv(input, **kwargs)
-        elif hasattr(self.wrapped_model, "predict_survival_function"):
+        elif self.model_type == "sksurv":
             # scikit-survival
             input = self._handle_all_missing_columns(input, "remove")
             surv = self.wrapped_model.predict_survival_function(
                 input, return_array=True
             )
+
+        elif self.model_type in ["tausurv_single", "tausurv_cr"]:
+            # tausurv
+            input = self._handle_all_missing_columns(input, "remove")
+            surv = self.wrapped_model.predict_survival_function(
+                X=input, times=self.jumps
+            )
+            return surv
         else:
             raise ValueError("Model does not have a predict_surv method")
         if surv.shape[1] == len(input):
@@ -161,7 +248,7 @@ class PycoxWrapper:
         if not self.fitted:
             raise ValueError("Model has not been fitted")
 
-        if hasattr(self.wrapped_model, "predict_cif"):
+        if self.model_type == "pycox_cr":
             # pycox with competing risks (e.g., DeepHit)
             input = self._handle_all_missing_columns(input, "zero")
             surv = self.predict_surv(input, additional_inputs)
@@ -183,7 +270,7 @@ class PycoxWrapper:
                 raise RuntimeError(
                     f"CIF output has {cum_haz.shape[2]} causes of failure, but only {len(np.unique(self.all_events)) - 1} are present in the data."
                 )
-        elif hasattr(self.wrapped_model, "predict_cumulative_hazards"):
+        elif self.model_type == "pycox_single":
             # pycox without competing risks (e.g., DeepSurv)
             input = self._handle_all_missing_columns(input, "zero")
             if additional_inputs is not None:
@@ -193,7 +280,7 @@ class PycoxWrapper:
                 cum_haz = cum_haz.T
             if len(cum_haz.shape) == 2:
                 cum_haz = cum_haz[..., np.newaxis]
-        elif hasattr(self.wrapped_model, "predict_cumulative_hazard_function"):
+        elif self.model_type == "sksurv":
             # scikit-survival
             input = self._handle_all_missing_columns(input, "remove")
             cum_haz = self.wrapped_model.predict_cumulative_hazard_function(
@@ -203,6 +290,15 @@ class PycoxWrapper:
                 cum_haz = cum_haz.T
             if len(cum_haz.shape) == 2:
                 cum_haz = cum_haz[..., np.newaxis]
+        elif self.model_type in ["tausurv_single", "tausurv_cr"]:
+            # tausurv
+            input = self._handle_all_missing_columns(input, "remove")
+            cum_haz = self.wrapped_model.predict_cumulative_hazard(
+                X=input, times=self.jumps
+            )
+            if len(cum_haz.shape) == 2:
+                cum_haz = cum_haz[..., np.newaxis]
+            return cum_haz
         else:
             raise ValueError(
                 "Model has no method to predict cumulative hazards or CIF."
@@ -250,7 +346,7 @@ class PycoxWrapperCauseSpecific(PycoxWrapper):
             target = (target[0], target[1] * event_indicator)
         self.fit_times = target[0]
         for i, model in self.wrapped_model.items():
-            if "sksurv" in type(model).__module__:
+            if self.model_type == "sksurv":
                 # scikit-survival-based model
                 target_i = Surv.from_arrays(target[1] == i, target[0])
                 input = self._handle_all_missing_columns(input, "remove")
@@ -260,7 +356,7 @@ class PycoxWrapperCauseSpecific(PycoxWrapper):
                         RuntimeWarning,
                     )
                 model.fit(input, target_i)
-            else:
+            elif self.model_type in ["pycox_single", "pycox_cr"]:
                 # pycox-based model
                 target_i = (target[0], (target[1].astype(int) == i).astype(int))
                 input = self._handle_all_missing_columns(input, "zero")
@@ -270,6 +366,19 @@ class PycoxWrapperCauseSpecific(PycoxWrapper):
                 # Cox-like models in pycox require the baseline hazard to be computed after fitting
                 if hasattr(model, "compute_baseline_hazards"):
                     model.compute_baseline_hazards()
+            elif self.model_type in ["tausurv_single", "tausurv_cr"]:
+                # tausurv-based model
+                event_time, event_indicator = target
+                event_indicator = (event_indicator == i).astype(int)
+                input = self._handle_all_missing_columns(input, "remove")
+                if additional_inputs is not None and self.verbose >= 1:
+                    warnings.warn(
+                        "Additional inputs are not supported for tausurv models and will be ignored.",
+                        RuntimeWarning,
+                    )
+                model.fit(
+                    X=input, event_indicator=event_indicator, event_time=event_time
+                )
         self.fitted = True
 
     def predict_surv(
@@ -289,7 +398,7 @@ class PycoxWrapperCauseSpecific(PycoxWrapper):
     ) -> np.ndarray:
         cum_haz = np.zeros((input.shape[0], len(self.jumps), len(self.wrapped_model)))
         for i, model in self.wrapped_model.items():
-            if hasattr(model, "predict_cumulative_hazards"):
+            if self.model_type == "pycox_single":
                 # pycox without competing risks (e.g., DeepSurv), for cause i
                 input = self._handle_all_missing_columns(input, "zero")
                 if additional_inputs is not None:
@@ -299,7 +408,7 @@ class PycoxWrapperCauseSpecific(PycoxWrapper):
                     cum_haz_i = cum_haz_i.T
                 cum_haz_i = self._update_times(cum_haz_i, 0, ffill=True)
                 cum_haz[..., i - 1] = cum_haz_i
-            elif hasattr(model, "predict_cumulative_hazard_function"):
+            elif self.model_type == "sksurv":
                 # scikit-survival
                 input = self._handle_all_missing_columns(input, "remove")
                 cum_haz_i = model.predict_cumulative_hazard_function(
@@ -308,6 +417,11 @@ class PycoxWrapperCauseSpecific(PycoxWrapper):
                 if cum_haz.shape[1] == len(input):
                     cum_haz_i = cum_haz.T
                 cum_haz_i = self._update_times(cum_haz_i, 0, ffill=True)
+                cum_haz[..., i - 1] = cum_haz_i
+            elif self.model_type in ["tausurv_single", "tausurv_cr"]:
+                # tausurv
+                input = self._handle_all_missing_columns(input, "remove")
+                cum_haz_i = model.predict_cumulative_hazard(X=input, times=self.jumps)
                 cum_haz[..., i - 1] = cum_haz_i
 
         return cum_haz
