@@ -89,6 +89,7 @@ def test_ate_ratio(mock_updated_estimates):
         assert result["CI_lower"].isna().all() == g_comp # should be all NA for g_comp=True
         assert result["CI_upper"].isna().all() == g_comp # should be all NA for g_comp=True
         assert result["p_value"].isna().all() == g_comp # should be all NA for g_comp=True
+        assert not result["E_value"].isna().any() # should not be NA for risk ratios
         assert result["E_value CI"].isna().all() == g_comp # should be all NA for g_comp=True
         assert result["E_value CI limit"].isna().all() == g_comp # should be all NA for g_comp=True
         assert len(result) == len(mock_updated_estimates[0].target_times) * len(mock_updated_estimates[1].target_events)
@@ -128,8 +129,9 @@ def test_ate_diff(mock_updated_estimates):
         assert result["CI_lower"].isna().all() == g_comp # should be all NA for g_comp=True
         assert result["CI_upper"].isna().all() == g_comp # should be all NA for g_comp=True
         assert result["p_value"].isna().all() == g_comp # should be all NA for g_comp=True
-        assert result["E_value CI"].isna().all() == g_comp # should be all NA for g_comp=True
-        assert result["E_value CI limit"].isna().all() == g_comp # should be all NA for g_comp=True
+        assert result["E_value"].isna().all() # should be all NA for risk differences
+        assert result["E_value CI"].isna().all() # should be all NA for risk differences
+        assert result["E_value CI limit"].isna().all() # should be all NA for risk differences
         assert len(result) == len(mock_updated_estimates[0].target_times) * len(mock_updated_estimates[1].target_events)
 
     # test plotting
