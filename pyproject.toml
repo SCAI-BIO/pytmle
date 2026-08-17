@@ -24,14 +24,10 @@ dev = [
     "pytest>=8.3.5",
     "torch>=2.6.0",
 ]
-tausurv = [
-    "tausurv-workspace",
-]
 
 [tool.uv.sources]
 pycox = { git = "https://github.com/pooya-mohammadi/pycox" }
 torch = { index = "pytorch-cpu" }
-tausurv-workspace = { git = "https://github.com/SCAI-BIO/tausurv.git" }
 
 [tool.setuptools]
 packages = ["pytmle"]
