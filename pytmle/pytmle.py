@@ -98,7 +98,8 @@ class PyTMLE:
             self.target_times = [max(self._event_times)]
         else:
             self.target_times = target_times
-        self.target_events = np.unique(
+        # all non-zero events are considered events of interest
+        self._target_events = np.unique(
             data.loc[data[col_event_indicator] != 0, col_event_indicator]
         )
         self.g_comp = g_comp
@@ -251,14 +252,14 @@ class PyTMLE:
                     self._initial_estimates[self.key_1].hazards, -1
                 )
             if (
-                len(self.target_events)
+                len(self._target_events)
                 != self._initial_estimates[self.key_0].hazards.shape[-1]
             ) or (
-                len(self.target_events)
+                len(self._target_events)
                 != self._initial_estimates[self.key_1].hazards.shape[-1]
             ):
                 raise ValueError(
-                    f"The number of target events ({len(self.target_events)}) does not match the last dimension of hazards in the given initial estimates ({self._initial_estimates[self.key_0].hazards.shape[-1]},{self._initial_estimates[self.key_1].hazards.shape[-1]})."
+                    f"The number of target events ({len(self._target_events)}) does not match the last dimension of hazards in the given initial estimates ({self._initial_estimates[self.key_0].hazards.shape[-1]},{self._initial_estimates[self.key_1].hazards.shape[-1]})."
                 )
             factual_event_free_survival = np.where(
                 np.expand_dims(self._group, 1) == 1,
@@ -370,7 +371,7 @@ class PyTMLE:
                 event_times=self._event_times,
                 event_indicator=self._event_indicator,
                 target_times=self.target_times,
-                target_events=self.target_events,
+                target_events=self._target_events,
                 n_bootstrap=n_bootstrap,
                 n_jobs=n_jobs,
                 stratify_by_event=stratified_bootstrap,
@@ -392,7 +393,7 @@ class PyTMLE:
             event_times=self._event_times,
             event_indicator=self._event_indicator,
             target_times=self.target_times,
-            target_events=self.target_events,
+            target_events=self._target_events,
             max_updates=max_updates,
             min_nuisance=min_nuisance,
             one_step_eps=one_step_eps,
@@ -817,11 +818,11 @@ class PyTMLE:
             target_times = self.target_times
         if event is not None:
             assert (
-                event in self.target_events
-            ), f"Event has to be one of the target events {self.target_events}."
+                event in self._target_events
+            ), f"Event has to be one of the target events {self._target_events}."
             target_events = [event]
         else:
-            target_events = self.target_events
+            target_events = self._target_events
         for _, _, time, event in self.evalues_benchmark.plot(
             target_times=target_times,
             target_events=target_events,
