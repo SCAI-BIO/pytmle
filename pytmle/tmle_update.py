@@ -213,6 +213,7 @@ def tmle_loop(
                 event_free_survival_function=new_surv,
                 propensity_scores=est_a.propensity_scores,
                 censoring_survival_function=est_a.censoring_survival_function,
+                min_nuisance=est_a.min_nuisance,
                 target_times=target_times,
                 target_events=target_events,
                 g_star_obs=est_a.g_star_obs,
