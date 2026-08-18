@@ -110,6 +110,12 @@ def abs_risk_integrated_brier_score(
     s_ = np.column_stack([np.ones((s.shape[0], 1)), s[:, :-1]])
     hf = np.diff(chf, axis=1, prepend=0)
     abs_risk = np.cumsum(hf * s_[..., np.newaxis], axis=1)
+
+    # add event-free state (0)
+    abs_risk = np.concatenate([s[..., np.newaxis], abs_risk], axis=-1)
+    counting_processes = np.concatenate([(~np.sum(counting_processes, axis=-1, dtype=bool)[..., np.newaxis]).astype(int), 
+                                         counting_processes], axis=-1)
+
     brier = (abs_risk - counting_processes) ** 2
     # TODO: Add weights?
     ibs = np.mean(
