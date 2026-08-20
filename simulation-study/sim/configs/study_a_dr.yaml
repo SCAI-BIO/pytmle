@@ -1,0 +1,114 @@
+# Study A: double robustness as a 2^3 factorial.
+#
+#   python -m sim.run --config sim/configs/study_a_dr.yaml \
+#       --output-dir results/study_a --summarise
+#
+# One DGP, one truth, eight analyses. The threshold u(W) sits in the truth for
+# every cell; Q and G are misspecified by dropping u from the design matrix, and
+# pi by dropping the continuous confounder w_cont. Data are byte-identical across
+# the eight cells at a given n, so every comparison is paired.
+#
+# Expected (see FINDINGS.md for how each lever was calibrated):
+#   gcomp  tracks Q          -> clean C1-C4, biased C5-C8
+#   ipw    tracks pi AND G   -> clean C1/C5 only
+#   aipw   double robust     -> clean unless Q wrong AND some g component wrong
+#   tmle   double robust     -> as aipw
+#
+# `concrete_reps` runs concrete's second stage on the first 150 replicates of
+# every cell, on the same seeds and the same injected nuisances, as part of this
+# same run. concrete 1.0.8 still carries the targeted-update defect that
+# FINDINGS 9 describes and PyTMLE has fixed, so the two agree in C1-C4 (where
+# the update barely moves) and separate in C5-C8. That separation is a result,
+# not a discrepancy to reconcile.
+#
+# min_nuisance is pinned at 0.01, which is meaningful again now that the bug in
+# tmle_update.py:210 is fixed -- though the denominators sit above 0.12 here, so
+# it does not bind at these sample sizes.
+
+name: study_a_dr
+description: >
+  Double robustness over the outcome, treatment and censoring models, each
+  correctly or incorrectly specified, at three sample sizes.
+
+defaults:
+  config: threshold
+  reps: 500
+  estimators: [tmle, gcomp, aipw, ipw]
+  concrete_reps: 150
+  min_nuisance: 0.01
+  max_updates: 200
+  tau_quantiles: [0.3, 0.5, 0.7]
+
+cells:
+  - name: C1_n250
+    n: 250
+    spec: {Q: correct, pi: correct, G: correct}
+  - name: C2_n250
+    n: 250
+    spec: {Q: correct, pi: correct, G: wrong}
+  - name: C3_n250
+    n: 250
+    spec: {Q: correct, pi: wrong, G: correct}
+  - name: C4_n250
+    n: 250
+    spec: {Q: correct, pi: wrong, G: wrong}
+  - name: C5_n250
+    n: 250
+    spec: {Q: wrong, pi: correct, G: correct}
+  - name: C6_n250
+    n: 250
+    spec: {Q: wrong, pi: correct, G: wrong}
+  - name: C7_n250
+    n: 250
+    spec: {Q: wrong, pi: wrong, G: correct}
+  - name: C8_n250
+    n: 250
+    spec: {Q: wrong, pi: wrong, G: wrong}
+  - name: C1_n500
+    n: 500
+    spec: {Q: correct, pi: correct, G: correct}
+  - name: C2_n500
+    n: 500
+    spec: {Q: correct, pi: correct, G: wrong}
+  - name: C3_n500
+    n: 500
+    spec: {Q: correct, pi: wrong, G: correct}
+  - name: C4_n500
+    n: 500
+    spec: {Q: correct, pi: wrong, G: wrong}
+  - name: C5_n500
+    n: 500
+    spec: {Q: wrong, pi: correct, G: correct}
+  - name: C6_n500
+    n: 500
+    spec: {Q: wrong, pi: correct, G: wrong}
+  - name: C7_n500
+    n: 500
+    spec: {Q: wrong, pi: wrong, G: correct}
+  - name: C8_n500
+    n: 500
+    spec: {Q: wrong, pi: wrong, G: wrong}
+  - name: C1_n1000
+    n: 1000
+    spec: {Q: correct, pi: correct, G: correct}
+  - name: C2_n1000
+    n: 1000
+    spec: {Q: correct, pi: correct, G: wrong}
+  - name: C3_n1000
+    n: 1000
+    spec: {Q: correct, pi: wrong, G: correct}
+  - name: C4_n1000
+    n: 1000
+    spec: {Q: correct, pi: wrong, G: wrong}
+  - name: C5_n1000
+    n: 1000
+    spec: {Q: wrong, pi: correct, G: correct}
+  - name: C6_n1000
+    n: 1000
+    spec: {Q: wrong, pi: correct, G: wrong}
+  - name: C7_n1000
+    n: 1000
+    spec: {Q: wrong, pi: wrong, G: correct}
+  - name: C8_n1000
+    n: 1000
+    spec: {Q: wrong, pi: wrong, G: wrong}

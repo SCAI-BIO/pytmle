@@ -1,0 +1,37 @@
+# Shared reference design: the `base` DGP with no misspecification intended.
+#
+# Used for smoke tests and as the starting point for Studies B and C. Study A
+# has its own config with the eight specification cells.
+#
+#   python -m sim.run --config sim/configs/reference.yaml --reps 50 \
+#       --output-dir results/pilot --cells C1 --summarise
+
+name: reference
+description: >
+  Correctly specified nuisances on the base DGP (no threshold term, no
+  control-arm resampling), at a small n-ladder. C1 is the oracle-nuisance
+  reference cell; C1c uses correctly specified estimated nuisances, which is the
+  practically relevant comparison.
+
+defaults:
+  config: base
+  reps: 500
+  estimators: [tmle, gcomp, aipw, ipw]
+  min_nuisance: 0.01        # pinned; PyTMLE's default 5/(sqrt(n) log n) is
+                            # n-dependent and would confound the n-ladder
+  max_updates: 200
+  tau_quantiles: [0.3, 0.5, 0.7]
+
+cells:
+  - name: C1
+    spec: oracle/oracle/oracle
+    n: 500
+  - name: C1c
+    spec: correct/correct/correct
+    n: 500
+  - name: C1c_n250
+    spec: correct/correct/correct
+    n: 250
+  - name: C1c_n1000
+    spec: correct/correct/correct
+    n: 1000
