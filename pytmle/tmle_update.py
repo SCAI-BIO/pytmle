@@ -45,11 +45,17 @@ def calculate_norm_pn_eic(pn_eic: pd.Series) -> float:
 
     return norm_pn_eic
 
+def cif_within_bounds(hazards: np.ndarray, total_surv: np.ndarray, tol: float=0.1) -> bool:
+    lagged = np.column_stack(
+        [np.ones((total_surv.shape[0], 1)), total_surv[:, :-1]]
+    )
+    cif = np.cumsum(lagged[:, :, None] * hazards, axis=1).sum(axis=-1)
+    return bool(np.all(np.isfinite(cif)) and cif.max() <= 1.0 + tol)
+
 
 def update_hazards(
     hazards: np.ndarray,
     total_surv,
-    g_star,
     nuisance_weight,
     eval_times,
     pn_eic,
@@ -64,7 +70,6 @@ def update_hazards(
     Args:
         hazards (dict): Dictionary of hazard matrices for each event type.
         total_surv (np.ndarray): Total survival probability matrix.
-        g_star (np.ndarray): Intervention vector.
         nuisance_weight (np.ndarray): Nuisance weights matrix.
         eval_times (np.ndarray): Evaluation time points.
         pn_eic (pd.DataFrame): DataFrame containing PnEIC values.
@@ -107,10 +112,13 @@ def update_hazards(
                     f_j_t[:, eval_times == tau].repeat(np.sum(mask), axis=1)
                     - f_j_t[:, mask]
                 ) / total_surv[:, mask]
+                h_fs = np.clip(
+                    np.nan_to_num(h_fs, nan=0.0, posinf=1.0, neginf=0.0), 0.0, 1.0
+                )
 
                 # Compute clever covariate using the helper function
                 clev_cov[:, mask] = get_clever_covariate(
-                    g_star=g_star,
+                    g_star=np.ones(hazards.shape[0]), # interventional vector of ones, so that hazards are updated for all instances
                     nuisance_weight=nuisance_weight[:, mask],
                     h_fs=h_fs[:, mask],
                     leq_j=int(l == j),
@@ -185,12 +193,12 @@ def tmle_loop(
 
         # Get updated hazards and EICs
         new_ests = {}
+        out_of_bounds = False
         for trt, est_a in estimates.items():
             eval_times = est_a.times
             if target_times is None:
                 target_times = est_a.target_times
             new_hazards = update_hazards(
-                g_star=est_a.g_star_obs,
                 hazards=est_a.hazards,
                 total_surv=est_a.event_free_survival_function,
                 nuisance_weight=est_a.nuisance_weight,
@@ -207,6 +215,9 @@ def tmle_loop(
             new_surv = np.exp(-np.cumsum(np.sum(new_hazards, axis=-1), axis=1))
             new_surv[new_surv < 1e-12] = 1e-12
 
+            if not cif_within_bounds(new_hazards, new_surv):
+                out_of_bounds=True
+
             new_ests[trt] = UpdatedEstimates(
                 times=eval_times,
                 hazards=new_hazards,
@@ -222,6 +233,13 @@ def tmle_loop(
 
         if verbose >= 4:
             print("Updated hazards and survival functions computed.")
+
+        # reject out-of-bounds updates and reduce epsilon
+        if out_of_bounds:
+            if verbose >= 4:
+                print("Updated hazards or survival functions are out of bounds. Reducing epsilon.")
+            working_eps /= 2
+            continue
 
         # get EIC for updated estimates
         new_ests = get_eic(
@@ -277,11 +295,17 @@ def tmle_loop(
             return new_ests, norm_pn_eics, True, step_num
 
     # Warning for non-convergence
-    if verbose >= 1:
+    if step_num == 0:
         warnings.warn(
-            f"Warning: TMLE has not converged by step {max_updates}. Estimates may not have the desired asymptotic properties.",
+            "Warning: TMLE did not perform any updates. Estimates may not have the desired asymptotic properties.",
             RuntimeWarning,
         )
+    else:
+        if verbose >= 1:
+            warnings.warn(
+                f"Warning: TMLE has not converged by step {max_updates}. Estimates may not have the desired asymptotic properties.",
+                RuntimeWarning,
+            )
     if mlflow_logging:
         mlflow.end_run()
 
