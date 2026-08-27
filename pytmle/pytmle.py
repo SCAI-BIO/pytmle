@@ -768,7 +768,6 @@ class PyTMLE:
         save_dir_path: Optional[str] = None,
         time: Optional[float] = None,
         event: Optional[int] = None,
-        type: str = "rr",
         use_bootstrap: bool = False,
         num_points_per_contour: int = 200,
         color_point_estimate: str = "blue",
@@ -787,8 +786,6 @@ class PyTMLE:
             Time at which to plot the E-value contours. If None, will plot for all target times. Default is None.
         event : Optional[int], optional
             Event at which to plot the E-value contours. If None, will plot for all target events. Default is None.
-        type : str, optional
-            The type of prediction. "rr" and "rd" are supported. Default is "rr".
         use_bootstrap : bool, optional
             Whether to use the bootstrapped bounds instead of the theoretical bounds. Default is False.
         num_points_per_contour : int, optional
@@ -826,7 +823,6 @@ class PyTMLE:
         for _, _, time, event in self.evalues_benchmark.plot(
             target_times=target_times,
             target_events=target_events,
-            ate_type=type,
             num_points_per_contour=num_points_per_contour,
             color_point_estimate=color_point_estimate,
             color_ci=color_ci,
