@@ -1,4 +1,4 @@
-from pytmle.pycox_wrapper import PycoxWrapper, PycoxWrapperCauseSpecific
+from pytmle.pycox_wrapper import wrap_model
 from .conftest import mock_main_class_inputs
 
 import pytest
@@ -34,36 +34,49 @@ def rsf(**kwargs):
 def gb(**kwargs):
     return GradientBoostingSurvivalAnalysis(n_estimators=10, random_state=42)
 
+try:
+    from tausurv.linear import CoxPH as TauCoxPH
+    from tausurv.trees import RandomSurvivalForest as TauRSF
 
-@pytest.mark.parametrize("get_model", ["deepsurv", "coxph", "rsf", "gb"])
+    def coxph_tausurv(**kwargs):
+        return TauCoxPH()
+
+    def rsf_tausurv(**kwargs):
+        return TauRSF(n_estimators=10, seed=42)
+
+except ImportError:
+
+    def coxph_tausurv(**kwargs):
+        pytest.skip("tausurv is not installed, skipping tausurv CoxPH tests")
+
+    def rsf_tausurv(**kwargs):
+        pytest.skip("tausurv is not installed, skipping tausurv RSF tests")
+
+
+@pytest.mark.parametrize(
+    "get_model", ["deepsurv", "coxph", "rsf", "gb", "coxph_tausurv", "rsf_tausurv"]
+)
 def test_fit(mock_main_class_inputs, get_model):
     model = eval(get_model)()
     df = mock_main_class_inputs["data"]
     X = df[["group", "x1", "x2", "x3"]].astype(np.float32)
     y = df[["event_time", "event_indicator"]].astype(np.float32)
 
-    if not hasattr(model, "predict_cif") and len(np.unique(y["event_indicator"])) > 2:
-        wrapper = PycoxWrapperCauseSpecific(
-            model,
-            labtrans=None,
-            all_times=y["event_time"].values,
-            all_events=y["event_indicator"].values,
-            input_size=4,
-        )
-    else:
-        wrapper = PycoxWrapper(
-            model,
-            labtrans=None,
-            all_times=y["event_time"].values,
-            all_events=y["event_indicator"].values,
-            input_size=4,
-        )
+    wrapper = wrap_model(
+        model=model,
+        labtrans=None,
+        all_times=y["event_time"].values,
+        all_events=y["event_indicator"].values,
+        input_size=4,
+    )
     wrapper.fit(X.values, (y["event_time"].values, y["event_indicator"].values))
     assert wrapper.fitted is True
     assert wrapper.fit_times is not None
 
 
-@pytest.mark.parametrize("get_model", ["deepsurv", "coxph", "rsf", "gb"])
+@pytest.mark.parametrize(
+    "get_model", ["deepsurv", "coxph", "rsf", "gb", "coxph_tausurv", "rsf_tausurv"]
+)
 def test_predict(mock_main_class_inputs, get_model):
     model = eval(get_model)()
     df = mock_main_class_inputs["data"]
@@ -73,22 +86,13 @@ def test_predict(mock_main_class_inputs, get_model):
 
     X = df[["group", "x1", "x2", "x3"]].astype(np.float32)
     y = df[["event_time", "event_indicator"]].astype(np.float32)
-    if not hasattr(model, "predict_cif") and len(np.unique(y["event_indicator"])) > 2:
-        wrapper = PycoxWrapperCauseSpecific(
-            model,
-            labtrans=None,
-            all_times=y["event_time"].values,
-            all_events=y["event_indicator"].values,
-            input_size=4,
-        )
-    else:
-        wrapper = PycoxWrapper(
-            model,
-            labtrans=None,
-            all_times=y["event_time"].values,
-            all_events=y["event_indicator"].values,
-            input_size=4,
-        )
+    wrapper = wrap_model(
+        model=model,
+        labtrans=None,
+        all_times=y["event_time"].values,
+        all_events=y["event_indicator"].values,
+        input_size=4,
+    )
     wrapper.fit(X.values, (y["event_time"].values, y["event_indicator"].values))
 
     # predict survival function
