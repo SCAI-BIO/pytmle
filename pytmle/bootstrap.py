@@ -83,8 +83,8 @@ def single_boot(
     ate_diffs["type"] = "rd"
     ate_diffs["Group"] = -1
     result_df = pd.concat([cf_risks, ate_ratios, ate_diffs])
-    # keep only estimates that converged
-    result_df = result_df[result_df["Converged"]]
+    # # keep only estimates that converged
+    # result_df = result_df[result_df["Converged"]]
     return result_df
 
 

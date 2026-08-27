@@ -1,0 +1,17 @@
+scenario s1
+  rep 10
+  rep 20
+  rep 30
+scenario s2
+  rep 10
+  rep 20
+  rep 30
+scenario s3
+  rep 10
+  rep 20
+  rep 30
+scenario s4
+  rep 10
+  rep 20
+  rep 30
+wrote replicates and nuisances to results/validation/rung3 

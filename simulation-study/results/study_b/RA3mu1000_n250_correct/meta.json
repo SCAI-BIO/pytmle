@@ -1,0 +1,30 @@
+{
+  "cell": "RA3mu1000_n250_correct",
+  "n": 250,
+  "arm": "correct",
+  "reps": 1000,
+  "chunk": 25,
+  "n_bootstrap": 0,
+  "config": "base",
+  "target_times": [
+    0.477676,
+    3.11961,
+    8.608445
+  ],
+  "min_nuisance": 0.01,
+  "max_updates": 1000,
+  "spec": {
+    "Q": "correct",
+    "pi": "correct",
+    "G": "correct"
+  },
+  "seed_key": "RA3_n250",
+  "params_override": {
+    "alpha": [
+      -5.0,
+      -2.6
+    ]
+  },
+  "axis": "max_updates",
+  "level": "RA3@1000"
+}

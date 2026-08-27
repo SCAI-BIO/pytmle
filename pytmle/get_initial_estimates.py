@@ -11,6 +11,7 @@ from sklearn.ensemble import (
 from sklearn.model_selection import cross_val_predict, StratifiedKFold
 from typing import Tuple, Optional, Any, List, Literal
 from copy import deepcopy
+import time
 import warnings
 
 from .pycox_wrapper import wrap_model
@@ -110,6 +111,12 @@ def abs_risk_integrated_brier_score(
     s_ = np.column_stack([np.ones((s.shape[0], 1)), s[:, :-1]])
     hf = np.diff(chf, axis=1, prepend=0)
     abs_risk = np.cumsum(hf * s_[..., np.newaxis], axis=1)
+
+    # add event-free state (0)
+    abs_risk = np.concatenate([s[..., np.newaxis], abs_risk], axis=-1)
+    counting_processes = np.concatenate([(~np.sum(counting_processes, axis=-1, dtype=bool)[..., np.newaxis]).astype(int), 
+                                         counting_processes], axis=-1)
+
     brier = (abs_risk - counting_processes) ** 2
     # TODO: Add weights?
     ibs = np.mean(
@@ -242,7 +249,9 @@ def fit_state_learner(
     for risks_model, risks_labtrans in zip(risks_models, risks_label_transformers):
         for censoring_model, censoring_labtrans in zip(
             censoring_models, censoring_label_transformers
-        ):
+        ):  
+            # keep track of the time taken for each model combination
+            start_time = time.time()
             # Combine the label transformers
             if risks_labtrans == censoring_labtrans:
                 combined_labtrans = risks_labtrans
@@ -332,12 +341,15 @@ def fit_state_learner(
                 # compute the integrated Brier score including absolute risks
                 loss = abs_risk_integrated_brier_score(chfs, events_by_cause, time_grid)
 
+                end_time = time.time()
+
                 # Add loss and model info to the list
                 loss_list.append(
                     {
                         "risks_model": risks_model.__class__.__name__,
                         "censoring_model": censoring_model.__class__.__name__,
                         "loss": loss,
+                        "time": end_time - start_time,
                     }
                 )
                 # Log to mlflow using a child run for each configuration (like in hyperparameter optimization)

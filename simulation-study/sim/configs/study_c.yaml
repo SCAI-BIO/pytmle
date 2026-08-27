@@ -1,0 +1,52 @@
+# Study C: estimator comparison and cross-package validation.
+#
+#   python -m sim.study_c --config sim/configs/study_c.yaml \
+#       --output-dir results/study_c
+#
+# One command runs every stage per sample size: export the replicates, fit the
+# nuisances once in R, run concrete's second stage on them, run PyTMLE's four
+# estimators on the same arrays, then write the figures and tables. Each stage is
+# skipped when its output already exists, so an interrupted run resumes.
+#
+# Every estimator here sees a *correctly specified* model. Specification is
+# Study A's subject; this study asks what the estimator itself contributes, and
+# what a practitioner gets from the conventional analysis instead. The DGP is
+# therefore `base` -- plain logistic assignment, no threshold term, no control
+# resampling -- so nothing in the data favours one estimator over another.
+#
+# Nuisances flow R -> parquet -> everyone. Fitting them separately in Python
+# would confound the estimator comparison with ties handling, centring and
+# cross-fitting differences between the two languages, which is precisely what
+# the study is trying to measure around.
+#
+# Tiers of sharing, and the tolerance each is entitled to:
+#   1  byte-identical injected nuisances   PyTMLE, concrete          ~2e-3
+#   2  identical fitted model objects      riskRegression::ate       ~1e-2
+#
+# concrete is compared on the *targeting increment* (tmle - gcomp) rather than
+# the CIF level: the two build different time grids, which shifts the plug-in by
+# ~1e-3 in both estimators alike and has nothing to do with the update step
+# (FINDINGS 8).
+
+name: study_c
+description: >
+  Estimator comparison under correct specification, against concrete and
+  riskRegression::ate, on point estimates, standard errors and the score.
+
+defaults:
+  config: base
+  reps: 500
+  min_nuisance: 0.01
+  estimators: [tmle, gcomp, aipw, ipw]
+
+# n = 2000 costs ~138 s per replicate serially against ~21 s at n = 500, so it
+# runs at a reduced replicate count. Agreement is paired and needs far fewer
+# replicates than bias does; the bias and coverage story is carried by n = 500
+# and n = 1000.
+sizes:
+  - n: 500
+    reps: 500
+  - n: 1000
+    reps: 500
+  - n: 2000
+    reps: 150

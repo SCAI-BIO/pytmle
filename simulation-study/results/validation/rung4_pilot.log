@@ -1,0 +1,10 @@
+[sim.run] 8 cell(s), 480 replicates -> results/validation/rung4_pilot
+  R4_none_Qok_Gok config=rung4_cens_none n=500    reps=60    spec=QC-piC-GC n_jobs=8   est=tmle,gcomp,aipw,ipw
+  R4_none_Qok_Gbad config=rung4_cens_none n=500    reps=60    spec=QC-piC-GW n_jobs=8   est=tmle,gcomp,aipw,ipw
+  R4_none_Qbad_Gok config=rung4_cens_none n=500    reps=60    spec=QW-piC-GC n_jobs=8   est=tmle,gcomp,aipw,ipw
+  R4_none_Qbad_Gbad config=rung4_cens_none n=500    reps=60    spec=QW-piC-GW n_jobs=8   est=tmle,gcomp,aipw,ipw
+  R4_info_Qok_Gok config=rung4_cens_info n=500    reps=60    spec=QC-piC-GC n_jobs=8   est=tmle,gcomp,aipw,ipw
+  R4_info_Qok_Gbad config=rung4_cens_info n=500    reps=60    spec=QC-piC-GW n_jobs=8   est=tmle,gcomp,aipw,ipw
+  R4_info_Qbad_Gok config=rung4_cens_info n=500    reps=60    spec=QW-piC-GC n_jobs=8   est=tmle,gcomp,aipw,ipw
+  R4_info_Qbad_Gbad config=rung4_cens_info n=500    reps=60    spec=QW-piC-GW n_jobs=8   est=tmle,gcomp,aipw,ipw
+[sim.run] done

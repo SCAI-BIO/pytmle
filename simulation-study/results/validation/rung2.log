@@ -1,0 +1,29 @@
+scenario s1 (150 reps, N = 1500)
+  rep 25
+  rep 50
+  rep 75
+  rep 100
+  rep 125
+  rep 150
+scenario s2 (150 reps, N = 1500)
+  rep 25
+  rep 50
+  rep 75
+  rep 100
+  rep 125
+  rep 150
+scenario s3 (150 reps, N = 1500)
+  rep 25
+  rep 50
+  rep 75
+  rep 100
+  rep 125
+  rep 150
+scenario s4 (150 reps, N = 1500)
+  rep 25
+  rep 50
+  rep 75
+  rep 100
+  rep 125
+  rep 150
+wrote 28800 rows to results/validation/adjcuminc_est.parquet 

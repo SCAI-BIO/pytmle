@@ -1,0 +1,17 @@
+{
+  "cell": "R4_info_Gok",
+  "config": "adjcuminc_cens_info",
+  "n": 500,
+  "reps": 300,
+  "spec": {
+    "Q": "correct",
+    "pi": "correct",
+    "G": "correct"
+  },
+  "target_times": [
+    0.119846,
+    0.246722,
+    0.462906
+  ],
+  "min_nuisance": 0.01
+}

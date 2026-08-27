@@ -1,0 +1,25 @@
+{
+  "cell": "W_n250_correct",
+  "n": 250,
+  "arm": "correct",
+  "reps": 1000,
+  "chunk": 25,
+  "n_bootstrap": 0,
+  "config": "base",
+  "target_times": [
+    0.477676,
+    3.11961,
+    8.608445
+  ],
+  "min_nuisance": 0.01,
+  "max_updates": 200,
+  "spec": {
+    "Q": "correct",
+    "pi": "correct",
+    "G": "correct"
+  },
+  "seed_key": "W_n250_correct",
+  "params_override": {},
+  "axis": "base",
+  "level": "base"
+}

@@ -1,0 +1,156 @@
+# Study B: where confidence intervals fail, and whether the bootstrap helps.
+#
+#   python -m sim.study_b --config sim/configs/study_b.yaml \
+#       --output-dir results/study_b --n-jobs 10
+#
+# GENERATED. Re-scoped after a measured cost pilot: the first draft projected
+# 226 h because stressed cells run 6-11x base (they burn the full update budget
+# without converging), which the design had assumed away. Every per-cell cost
+# below is measured, not extrapolated. Total ~40 h.
+#
+# TWO HYPOTHESES, each with a signed prediction from the `concrete` paper's own
+# statement that the EIC variance estimator "can be anti-conservative" under
+# practical positivity violations, that the bootstrap "may be more reliable" for
+# the variance, and that "bias resulting from positivity violations cannot be
+# remedied in this way":
+#
+#   H1 overlap      SE/SD < 1, bias ~ 0, symmetric misses.
+#                   Bootstrap repairs the variance but not the bias.
+#   H2 rare events  SE/SD ~ 1, skewed boundary-bounded sampling distribution,
+#                   ASYMMETRIC misses. Percentile/BCa and the transformed
+#                   scales should help.
+#
+# Censoring is H1's second channel: treatment positivity acts through pi,
+# censoring positivity through G(t-), which shrinks as tau grows.
+#
+# tau is PINNED to the base times in every cell. target_times_for reads
+# quantiles of the observed event-time distribution, which rarity and censoring
+# both shift, so the quantile rule would evaluate each condition at a different
+# clock time and confound the axis with tau.
+#
+# seed_key is the DGP identity, not the cell name: cells sharing a DGP and n
+# draw identical datasets, so oracle-vs-correct, the min_nuisance sweep, the
+# max_updates contrast and Wald-vs-bootstrap are all exactly paired. Only the
+# first 8 bytes are hashed; the loader refuses a config where two distinct keys
+# collide in that prefix.
+
+name: study_b
+description: >
+  Wald and three transformed-scale variants against percentile/basic/BCa
+  bootstrap intervals, under treatment-positivity, rare-event and
+  censoring-positivity stress, with min_nuisance as the remedy dial and a null
+  condition for type-I error.
+
+defaults:
+  config: base
+  min_nuisance: 0.01
+  max_updates: 200
+  target_times: [0.477676, 3.11961, 8.608445]
+
+wald_cells:
+  # --- COMPLETED: the base condition's n-ladder. Shards exist and are skipped.
+  # The n=1000 and n=2000 pairs SHARE a seed key -- not a choice: the 8-byte
+  # hash makes "W_n1000_oracle" and "W_n1000_correct" collide, so those arms
+  # already drew identical datasets while n=250 and n=500 did not. Recorded so
+  # the metadata is honest; their oracle/correct contrasts carry different
+  # Monte Carlo SEs and must not be pooled.
+  - {name: "W_n250_oracle", n: 250, arm: "oracle", reps: 1000, seed_key: "W_n250_oracle", axis: "base", level: "base"}
+  - {name: "W_n250_correct", n: 250, arm: "correct", reps: 1000, seed_key: "W_n250_correct", axis: "base", level: "base"}
+  - {name: "W_n500_oracle", n: 500, arm: "oracle", reps: 1000, seed_key: "W_n500_oracle", axis: "base", level: "base"}
+  - {name: "W_n500_correct", n: 500, arm: "correct", reps: 1000, seed_key: "W_n500_correct", axis: "base", level: "base"}
+  - {name: "W_n1000_oracle", n: 1000, arm: "oracle", reps: 1000, seed_key: "W_n1000_shared", axis: "base", level: "base"}
+  - {name: "W_n1000_correct", n: 1000, arm: "correct", reps: 1000, seed_key: "W_n1000_shared", axis: "base", level: "base"}
+  - {name: "W_n2000_oracle", n: 2000, arm: "oracle", reps: 500, seed_key: "W_n2000_shared", axis: "base", level: "base"}
+  - {name: "W_n2000_correct", n: 2000, arm: "correct", reps: 500, seed_key: "W_n2000_shared", axis: "base", level: "base"}
+
+  # --- dose-response at n=250, every level, 1000 reps (4.1 h) ---------------
+  - {name: "OV1_n250_correct", n: 250, arm: "correct", reps: 1000, seed_key: "OV1_n250", axis: "overlap", level: "OV1", target_times: [0.477676, 3.11961, 8.608445], params_override: {gamma: [1.0, -0.8, 0.6]}}
+  - {name: "OV2_n250_correct", n: 250, arm: "correct", reps: 1000, seed_key: "OV2_n250", axis: "overlap", level: "OV2", target_times: [0.477676, 3.11961, 8.608445], params_override: {gamma: [1.5, -1.2, 0.9]}}
+  - {name: "OV3_n250_correct", n: 250, arm: "correct", reps: 1000, seed_key: "OV3_n250", axis: "overlap", level: "OV3", target_times: [0.477676, 3.11961, 8.608445], params_override: {gamma: [2.0, -1.6, 1.2]}}
+  - {name: "OV4_n250_correct", n: 250, arm: "correct", reps: 1000, seed_key: "OV4_n250", axis: "overlap", level: "OV4", target_times: [0.477676, 3.11961, 8.608445], params_override: {gamma: [3.0, -2.4, 1.8]}}
+  - {name: "RA1_n250_correct", n: 250, arm: "correct", reps: 1000, seed_key: "RA1_n250", axis: "rare", level: "RA1", target_times: [0.477676, 3.11961, 8.608445], params_override: {alpha: [-3.5, -2.6]}}
+  - {name: "RA2_n250_correct", n: 250, arm: "correct", reps: 1000, seed_key: "RA2_n250", axis: "rare", level: "RA2", target_times: [0.477676, 3.11961, 8.608445], params_override: {alpha: [-4.2, -2.6]}}
+  - {name: "RA3_n250_correct", n: 250, arm: "correct", reps: 1000, seed_key: "RA3_n250", axis: "rare", level: "RA3", target_times: [0.477676, 3.11961, 8.608445], params_override: {alpha: [-5.0, -2.6]}}
+  - {name: "CN0_n250_correct", n: 250, arm: "correct", reps: 1000, seed_key: "CN0_n250", axis: "censoring", level: "CN0", target_times: [0.477676, 3.11961, 8.608445], params_override: {beta_c: [0.0, 0.0, 0.0], theta_c: 0.0, eta_c: 0.0, alpha_c: -2.6341}}
+  - {name: "CN1_n250_correct", n: 250, arm: "correct", reps: 1000, seed_key: "CN1_n250", axis: "censoring", level: "CN1", target_times: [0.477676, 3.11961, 8.608445], params_override: {beta_c: [0.2, -0.2, 0.175], theta_c: 0.1, eta_c: 0.5, alpha_c: -2.7466}}
+  - {name: "CN2_n250_correct", n: 250, arm: "correct", reps: 1000, seed_key: "CN2_n250", axis: "censoring", level: "CN2", target_times: [0.477676, 3.11961, 8.608445], params_override: {beta_c: [0.4, -0.4, 0.35], theta_c: 0.2, eta_c: 1.0, alpha_c: -2.8868}}
+  - {name: "CN3_n250_correct", n: 250, arm: "correct", reps: 1000, seed_key: "CN3_n250", axis: "censoring", level: "CN3", target_times: [0.477676, 3.11961, 8.608445], params_override: {beta_c: [0.6, -0.6, 0.525], theta_c: 0.3, eta_c: 1.5, alpha_c: -3.0425}}
+  - {name: "CN4_n250_correct", n: 250, arm: "correct", reps: 1000, seed_key: "CN4_n250", axis: "censoring", level: "CN4", target_times: [0.477676, 3.11961, 8.608445], params_override: {beta_c: [0.4, -0.4, 0.35], theta_c: 0.2, eta_c: 1.0, alpha_c: -1.9612}}
+  - {name: "NULL_n250_correct", n: 250, arm: "correct", reps: 1000, seed_key: "NULL_n250", axis: "nulleffect", level: "NULL", target_times: [0.477676, 3.11961, 8.608445], params_override: {theta: [0.0, 0.0]}}
+
+  # --- n=500, 500 reps (5.7 h). Coverage MC-SE here is 1.0 %, which still
+  # resolves 0.95 vs 0.90.
+  #
+  # OV4 and CN4 were initially cut from this block as the two most expensive
+  # cells at this size (63.8 and 53.2 s/rep against ~10 s for base) and added
+  # back once the bootstrap phase was nearly done: without them the overlap and
+  # censoring dose-response curves ended one level short at n = 500, so the
+  # n = 250 line ran past the n = 500 line at the very level where they diverge
+  # most, which is exactly where a reader looks.
+  - {name: "OV1_n500_correct", n: 500, arm: "correct", reps: 500, seed_key: "OV1_n500", axis: "overlap", level: "OV1", target_times: [0.477676, 3.11961, 8.608445], params_override: {gamma: [1.0, -0.8, 0.6]}}
+  - {name: "OV2_n500_correct", n: 500, arm: "correct", reps: 500, seed_key: "OV2_n500", axis: "overlap", level: "OV2", target_times: [0.477676, 3.11961, 8.608445], params_override: {gamma: [1.5, -1.2, 0.9]}}
+  - {name: "OV3_n500_correct", n: 500, arm: "correct", reps: 500, seed_key: "OV3_n500", axis: "overlap", level: "OV3", target_times: [0.477676, 3.11961, 8.608445], params_override: {gamma: [2.0, -1.6, 1.2]}}
+  - {name: "RA1_n500_correct", n: 500, arm: "correct", reps: 500, seed_key: "RA1_n500", axis: "rare", level: "RA1", target_times: [0.477676, 3.11961, 8.608445], params_override: {alpha: [-3.5, -2.6]}}
+  - {name: "RA2_n500_correct", n: 500, arm: "correct", reps: 500, seed_key: "RA2_n500", axis: "rare", level: "RA2", target_times: [0.477676, 3.11961, 8.608445], params_override: {alpha: [-4.2, -2.6]}}
+  - {name: "RA3_n500_correct", n: 500, arm: "correct", reps: 500, seed_key: "RA3_n500", axis: "rare", level: "RA3", target_times: [0.477676, 3.11961, 8.608445], params_override: {alpha: [-5.0, -2.6]}}
+  - {name: "CN0_n500_correct", n: 500, arm: "correct", reps: 500, seed_key: "CN0_n500", axis: "censoring", level: "CN0", target_times: [0.477676, 3.11961, 8.608445], params_override: {beta_c: [0.0, 0.0, 0.0], theta_c: 0.0, eta_c: 0.0, alpha_c: -2.6341}}
+  - {name: "CN1_n500_correct", n: 500, arm: "correct", reps: 500, seed_key: "CN1_n500", axis: "censoring", level: "CN1", target_times: [0.477676, 3.11961, 8.608445], params_override: {beta_c: [0.2, -0.2, 0.175], theta_c: 0.1, eta_c: 0.5, alpha_c: -2.7466}}
+  - {name: "CN2_n500_correct", n: 500, arm: "correct", reps: 500, seed_key: "CN2_n500", axis: "censoring", level: "CN2", target_times: [0.477676, 3.11961, 8.608445], params_override: {beta_c: [0.4, -0.4, 0.35], theta_c: 0.2, eta_c: 1.0, alpha_c: -2.8868}}
+  - {name: "CN3_n500_correct", n: 500, arm: "correct", reps: 500, seed_key: "CN3_n500", axis: "censoring", level: "CN3", target_times: [0.477676, 3.11961, 8.608445], params_override: {beta_c: [0.6, -0.6, 0.525], theta_c: 0.3, eta_c: 1.5, alpha_c: -3.0425}}
+  - {name: "OV4_n500_correct", n: 500, arm: "correct", reps: 500, seed_key: "OV4_n500", axis: "overlap", level: "OV4", target_times: [0.477676, 3.11961, 8.608445], params_override: {gamma: [3.0, -2.4, 1.8]}}
+  - {name: "CN4_n500_correct", n: 500, arm: "correct", reps: 500, seed_key: "CN4_n500", axis: "censoring", level: "CN4", target_times: [0.477676, 3.11961, 8.608445], params_override: {beta_c: [0.4, -0.4, 0.35], theta_c: 0.2, eta_c: 1.0, alpha_c: -1.9612}}
+  - {name: "NULL_n500_correct", n: 500, arm: "correct", reps: 500, seed_key: "NULL_n500", axis: "nulleffect", level: "NULL", target_times: [0.477676, 3.11961, 8.608445], params_override: {theta: [0.0, 0.0]}}
+
+  # --- oracle arm at the worst level of each axis (2.5 h). Separates the
+  # second stage from nuisance estimation: paired by seed_key with the
+  # `correct` cells above, so the contrast is exact.
+  - {name: "OV3_n250_oracle", n: 250, arm: "oracle", reps: 1000, seed_key: "OV3_n250", axis: "overlap", level: "OV3", target_times: [0.477676, 3.11961, 8.608445], params_override: {gamma: [2.0, -1.6, 1.2]}}
+  - {name: "OV4_n250_oracle", n: 250, arm: "oracle", reps: 1000, seed_key: "OV4_n250", axis: "overlap", level: "OV4", target_times: [0.477676, 3.11961, 8.608445], params_override: {gamma: [3.0, -2.4, 1.8]}}
+  - {name: "RA3_n250_oracle", n: 250, arm: "oracle", reps: 1000, seed_key: "RA3_n250", axis: "rare", level: "RA3", target_times: [0.477676, 3.11961, 8.608445], params_override: {alpha: [-5.0, -2.6]}}
+  - {name: "CN3_n250_oracle", n: 250, arm: "oracle", reps: 1000, seed_key: "CN3_n250", axis: "censoring", level: "CN3", target_times: [0.477676, 3.11961, 8.608445], params_override: {beta_c: [0.6, -0.6, 0.525], theta_c: 0.3, eta_c: 1.5, alpha_c: -3.0425}}
+  - {name: "CN4_n250_oracle", n: 250, arm: "oracle", reps: 1000, seed_key: "CN4_n250", axis: "censoring", level: "CN4", target_times: [0.477676, 3.11961, 8.608445], params_override: {beta_c: [0.4, -0.4, 0.35], theta_c: 0.2, eta_c: 1.0, alpha_c: -1.9612}}
+
+  # --- remedy 1: truncation (2.1 h). "enforcing a lower bound decreases
+  # estimator variance at the cost of introducing bias but improving
+  # stability" (concrete). Paired with the min_nuisance = 0.01 cells above.
+  - {name: "OV3mn025_n250_correct", n: 250, arm: "correct", reps: 500, seed_key: "OV3_n250", axis: "min_nuisance", level: "OV3@0.025", target_times: [0.477676, 3.11961, 8.608445], params_override: {gamma: [2.0, -1.6, 1.2]}, min_nuisance: 0.025}
+  - {name: "OV3mn05_n250_correct", n: 250, arm: "correct", reps: 500, seed_key: "OV3_n250", axis: "min_nuisance", level: "OV3@0.05", target_times: [0.477676, 3.11961, 8.608445], params_override: {gamma: [2.0, -1.6, 1.2]}, min_nuisance: 0.05}
+  - {name: "OV3mn1_n250_correct", n: 250, arm: "correct", reps: 500, seed_key: "OV3_n250", axis: "min_nuisance", level: "OV3@0.1", target_times: [0.477676, 3.11961, 8.608445], params_override: {gamma: [2.0, -1.6, 1.2]}, min_nuisance: 0.1}
+  - {name: "CN3mn025_n250_correct", n: 250, arm: "correct", reps: 500, seed_key: "CN3_n250", axis: "min_nuisance", level: "CN3@0.025", target_times: [0.477676, 3.11961, 8.608445], params_override: {beta_c: [0.6, -0.6, 0.525], theta_c: 0.3, eta_c: 1.5, alpha_c: -3.0425}, min_nuisance: 0.025}
+  - {name: "CN3mn05_n250_correct", n: 250, arm: "correct", reps: 500, seed_key: "CN3_n250", axis: "min_nuisance", level: "CN3@0.05", target_times: [0.477676, 3.11961, 8.608445], params_override: {beta_c: [0.6, -0.6, 0.525], theta_c: 0.3, eta_c: 1.5, alpha_c: -3.0425}, min_nuisance: 0.05}
+  - {name: "CN3mn1_n250_correct", n: 250, arm: "correct", reps: 500, seed_key: "CN3_n250", axis: "min_nuisance", level: "CN3@0.1", target_times: [0.477676, 3.11961, 8.608445], params_override: {beta_c: [0.6, -0.6, 0.525], theta_c: 0.3, eta_c: 1.5, alpha_c: -3.0425}, min_nuisance: 0.1}
+
+  # --- remedy 2: update budget (1.25 h). The pilot already showed 1000 steps
+  # buying nothing at RA3 -- identical 0.38 convergence at 4.5x the cost -- so
+  # one cell confirms it at scale instead of four. That matches what concrete
+  # says about positivity, and extends it to rare events.
+  - {name: "RA3mu1000_n250_correct", n: 250, arm: "correct", reps: 1000, seed_key: "RA3_n250", axis: "max_updates", level: "RA3@1000", target_times: [0.477676, 3.11961, 8.608445], params_override: {alpha: [-5.0, -2.6]}, max_updates: 1000}
+
+# --- Phase 2: bootstrap (25.9 h) ---------------------------------------------
+# Last, so Phase 1 completes first and stands alone as a deliverable. Each cell
+# emits its own wald rows from the same fit, so Wald-vs-bootstrap is paired
+# within the cell; seed_key also pairs it with that condition's Wald cell.
+# B = 100 is PyTMLE's default, so these measure what users get.
+#
+# Measured: a resample costs 1.0-1.1x a fit, and at RA3 all 15/15 probe
+# resamples hit mode 1 (loop budget exhausted), so the failure-mode
+# instrumentation is directly load-bearing there.
+boot_cells:
+  # base control -- COMPLETED, 250 reps at B=100
+  - {name: "BS12_n250_oracle", n: 250, arm: "oracle", reps: 250, n_bootstrap: 100,
+     seed_key: "BS12_n250_shared", axis: "base", level: "base"}
+  - {name: "B_OV2_n250_correct", n: 250, arm: "correct", reps: 150, seed_key: "OV2_n250", axis: "overlap", level: "OV2", target_times: [0.477676, 3.11961, 8.608445], params_override: {gamma: [1.5, -1.2, 0.9]}, n_bootstrap: 100}
+  - {name: "B_OV3_n250_correct", n: 250, arm: "correct", reps: 150, seed_key: "OV3_n250", axis: "overlap", level: "OV3", target_times: [0.477676, 3.11961, 8.608445], params_override: {gamma: [2.0, -1.6, 1.2]}, n_bootstrap: 100}
+  - {name: "B_RA2_n250_correct", n: 250, arm: "correct", reps: 150, seed_key: "RA2_n250", axis: "rare", level: "RA2", target_times: [0.477676, 3.11961, 8.608445], params_override: {alpha: [-4.2, -2.6]}, n_bootstrap: 100}
+  - {name: "B_OV4_n250_correct", n: 250, arm: "correct", reps: 150, seed_key: "OV4_n250", axis: "overlap", level: "OV4", target_times: [0.477676, 3.11961, 8.608445], params_override: {gamma: [3.0, -2.4, 1.8]}, n_bootstrap: 100}
+  - {name: "B_RA3_n250_correct", n: 250, arm: "correct", reps: 150, seed_key: "RA3_n250", axis: "rare", level: "RA3", target_times: [0.477676, 3.11961, 8.608445], params_override: {alpha: [-5.0, -2.6]}, n_bootstrap: 100}
+
+  # B=500 at the BASE condition, not at a stressed one. The percentile
+  # shortfall actually measured (0.919 against Wald's 0.964) was here, so this
+  # tests "is the construction wrong, or are 100 draws too few for a 2.5 %
+  # quantile" on the exact cell where the effect was seen -- and at 2.24 s a
+  # resample it costs 3.9 h instead of the 38 h the same question would cost at
+  # OV3. Shares BS12's seed key, so it is the same 100 replicates.
+  - {name: "B_BASEb500_n250_oracle", n: 250, arm: "oracle", reps: 100,
+     n_bootstrap: 500, seed_key: "BS12_n250_shared", axis: "bootstrap_B",
+     level: "base@B500"}

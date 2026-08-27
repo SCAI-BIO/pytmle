@@ -1,0 +1,17 @@
+{
+  "cell": "R4_none_Gbad",
+  "config": "adjcuminc_cens_none",
+  "n": 500,
+  "reps": 300,
+  "spec": {
+    "Q": "correct",
+    "pi": "correct",
+    "G": "wrong"
+  },
+  "target_times": [
+    0.15721,
+    0.292444,
+    0.50502
+  ],
+  "min_nuisance": 0.01
+}

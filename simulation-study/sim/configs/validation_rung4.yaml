@@ -1,0 +1,78 @@
+# Rung 4: what an informative censoring mechanism changes.
+#
+#   python -m sim.run --config sim/configs/validation_rung4.yaml \
+#       --output-dir results/validation/rung4b --summarise
+#
+# Hage et al. draw censoring from U(P20(T), P95(T)) -- independent of covariates
+# and of treatment -- and never fit a censoring model, so censoring plays no part
+# in their double-robustness argument. For TMLE the censoring survival is part of
+# the `g` nuisance (the clever covariate's denominator is pi * G), so it must be
+# estimable and must be able to be misspecified.
+#
+# A 2x2x2: censoring regime x outcome model x censoring model.
+#
+# The outcome dimension is what makes this work, and its absence is what made the
+# first version of this rung uninformative. TMLE and the one-step are doubly
+# robust: with Q correct they stay consistent *even when G is wrong*, so asking a
+# misspecified censoring model to bias them under a correct outcome model is
+# asking the theory to fail. The signal lives in the Q-wrong row, where the
+# double-robust protection is off and G has to carry the estimate alone.
+#
+# Expected:
+#   Q correct, either regime      -> misspecifying G is harmless (this *is* double
+#                                    robustness, and is worth showing)
+#   Q wrong,   uninformative      -> harmless (there is nothing to miss)
+#   Q wrong,   informative        -> biased  <- the finding, and the failure mode
+#                                    their design is structurally unable to detect
+#
+# Both regimes censor ~22 % by construction, so the contrast isolates dependence
+# rather than amount.
+
+name: validation_rung4
+description: >
+  Misspecifying the censoring model costs nothing until censoring actually
+  depends on covariates and treatment -- and even then only once the outcome
+  model can no longer carry the estimate.
+
+defaults:
+  reps: 400
+  n: 500
+  estimators: [tmle, gcomp, aipw, ipw]
+  min_nuisance: 0.01
+  max_updates: 200
+  # Pinned, not derived from quantiles. The default rule reads the 30/50/70th
+  # percentiles of the *observed* event-time distribution, which censoring
+  # shifts -- the two regimes come out at 2.65 and 2.80 for the last target. The
+  # whole point of this rung is that the regimes differ only in censoring
+  # dependence, so they have to be scored at the same tau. These are the `none`
+  # regime's quantiles, which lie inside both supports.
+  target_times: [0.5943, 1.2771, 2.6526]
+
+cells:
+  # --- censoring uninformative (their setting) --------------------------
+  - name: R4_none_Qok_Gok
+    config: rung4_cens_none
+    spec: {Q: correct, pi: correct, G: correct}
+  - name: R4_none_Qok_Gbad
+    config: rung4_cens_none
+    spec: {Q: correct, pi: correct, G: wrong}
+  - name: R4_none_Qbad_Gok
+    config: rung4_cens_none
+    spec: {Q: wrong, pi: correct, G: correct}
+  - name: R4_none_Qbad_Gbad
+    config: rung4_cens_none
+    spec: {Q: wrong, pi: correct, G: wrong}
+
+  # --- censoring informative (the extension) -----------------------------
+  - name: R4_info_Qok_Gok
+    config: rung4_cens_info
+    spec: {Q: correct, pi: correct, G: correct}
+  - name: R4_info_Qok_Gbad
+    config: rung4_cens_info
+    spec: {Q: correct, pi: correct, G: wrong}
+  - name: R4_info_Qbad_Gok
+    config: rung4_cens_info
+    spec: {Q: wrong, pi: correct, G: correct}
+  - name: R4_info_Qbad_Gbad
+    config: rung4_cens_info
+    spec: {Q: wrong, pi: correct, G: wrong}

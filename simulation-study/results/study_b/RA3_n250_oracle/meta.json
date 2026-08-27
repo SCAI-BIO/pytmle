@@ -1,0 +1,30 @@
+{
+  "cell": "RA3_n250_oracle",
+  "n": 250,
+  "arm": "oracle",
+  "reps": 1000,
+  "chunk": 25,
+  "n_bootstrap": 0,
+  "config": "base",
+  "target_times": [
+    0.477676,
+    3.11961,
+    8.608445
+  ],
+  "min_nuisance": 0.01,
+  "max_updates": 200,
+  "spec": {
+    "Q": "oracle",
+    "pi": "oracle",
+    "G": "oracle"
+  },
+  "seed_key": "RA3_n250",
+  "params_override": {
+    "alpha": [
+      -5.0,
+      -2.6
+    ]
+  },
+  "axis": "rare",
+  "level": "RA3"
+}

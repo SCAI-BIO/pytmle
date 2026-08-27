@@ -1,0 +1,17 @@
+{
+  "cell": "C5_n250",
+  "config": "threshold",
+  "n": 250,
+  "reps": 500,
+  "spec": {
+    "Q": "wrong",
+    "pi": "correct",
+    "G": "correct"
+  },
+  "target_times": [
+    0.513946,
+    1.149562,
+    2.66982
+  ],
+  "min_nuisance": 0.01
+}

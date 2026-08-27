@@ -1,0 +1,25 @@
+{
+  "cell": "BS12_n250_oracle",
+  "n": 250,
+  "arm": "oracle",
+  "reps": 250,
+  "chunk": 25,
+  "n_bootstrap": 100,
+  "config": "base",
+  "target_times": [
+    0.477676,
+    3.11961,
+    8.608445
+  ],
+  "min_nuisance": 0.01,
+  "max_updates": 200,
+  "spec": {
+    "Q": "oracle",
+    "pi": "oracle",
+    "G": "oracle"
+  },
+  "seed_key": "BS12_n250_shared",
+  "params_override": {},
+  "axis": "base",
+  "level": "base"
+}

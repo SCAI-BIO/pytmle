@@ -1,0 +1,31 @@
+{
+  "cell": "OV3mn1_n250_correct",
+  "n": 250,
+  "arm": "correct",
+  "reps": 500,
+  "chunk": 25,
+  "n_bootstrap": 0,
+  "config": "base",
+  "target_times": [
+    0.477676,
+    3.11961,
+    8.608445
+  ],
+  "min_nuisance": 0.1,
+  "max_updates": 200,
+  "spec": {
+    "Q": "correct",
+    "pi": "correct",
+    "G": "correct"
+  },
+  "seed_key": "OV3_n250",
+  "params_override": {
+    "gamma": [
+      2.0,
+      -1.6,
+      1.2
+    ]
+  },
+  "axis": "min_nuisance",
+  "level": "OV3@0.1"
+}

@@ -1,0 +1,31 @@
+{
+  "cell": "OV4_n250_oracle",
+  "n": 250,
+  "arm": "oracle",
+  "reps": 1000,
+  "chunk": 25,
+  "n_bootstrap": 0,
+  "config": "base",
+  "target_times": [
+    0.477676,
+    3.11961,
+    8.608445
+  ],
+  "min_nuisance": 0.01,
+  "max_updates": 200,
+  "spec": {
+    "Q": "oracle",
+    "pi": "oracle",
+    "G": "oracle"
+  },
+  "seed_key": "OV4_n250",
+  "params_override": {
+    "gamma": [
+      3.0,
+      -2.4,
+      1.8
+    ]
+  },
+  "axis": "overlap",
+  "level": "OV4"
+}

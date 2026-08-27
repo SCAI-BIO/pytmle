@@ -46,9 +46,10 @@ def wrap_model(
         raise ValueError(f"Unsupported model type: {type(model).__module__}")
 
     if not supports_cr and len(np.unique(all_events)) > 2:
-        print(
-            f"Fitting cause-specific model because {model.__class__.__name__} does not support competing risks."
-        )
+        if verbose >= 3:
+            print(
+                f"Fitting cause-specific model because {model.__class__.__name__} does not support competing risks."
+            )
         return PycoxWrapperCauseSpecific(
             wrapped_model=model,
             labtrans=labtrans,
