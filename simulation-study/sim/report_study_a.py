@@ -29,14 +29,24 @@ IMPLEMENTATIONS = ("tmle", "tmle (concrete)")
 
 def build(
     output_dir: Path | str = "results/study_a",
-    fig_dir: Path | str = "results/figures",
-    table_dir: Path | str = "results/tables",
-    summary_path: Path | str = "results/study_a_summary.parquet",
+    fig_dir: Path | str | None = None,
+    table_dir: Path | str | None = None,
+    summary_path: Path | str | None = None,
     estimand: str = "rd",
     event: int = 1,
     n_mc: int = 4_000_000,
 ) -> pd.DataFrame:
+    """Every Study A deliverable, written **under `output_dir`** by default.
+
+    The three paths used to default to flat `results/...` locations that ignored
+    `output_dir`, so reporting two output directories overwrote one summary with
+    the other's and `--output-dir` silently failed to move the figures.
+    """
     output_dir = Path(output_dir)
+    fig_dir = Path(fig_dir) if fig_dir is not None else output_dir / "figures"
+    table_dir = Path(table_dir) if table_dir is not None else output_dir / "tables"
+    summary_path = (Path(summary_path) if summary_path is not None
+                    else output_dir / "summary.parquet")
 
     summary = summarise_dir(output_dir, n_mc=n_mc)
     Path(summary_path).parent.mkdir(parents=True, exist_ok=True)
@@ -58,15 +68,22 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="sim.report_study_a", description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--output-dir", default="results/study_a")
-    ap.add_argument("--fig-dir", default="results/figures")
-    ap.add_argument("--table-dir", default="results/tables")
+    # Derived from --output-dir, matching `sim.run --report` (run.py:86-87).
+    # These used to default to a flat `results/figures` / `results/tables`, so
+    # reporting the same study through the two entry points wrote to two
+    # different places and `--output-dir` silently did not move the figures.
+    ap.add_argument("--fig-dir", default=None,
+                    help="default <output-dir>/figures")
+    ap.add_argument("--table-dir", default=None,
+                    help="default <output-dir>/tables")
     ap.add_argument("--estimand", default="rd")
     ap.add_argument("--event", type=int, default=1)
     a = ap.parse_args(argv)
-    s = build(a.output_dir, a.fig_dir, a.table_dir, estimand=a.estimand,
-              event=a.event)
+    fig = Path(a.fig_dir) if a.fig_dir else Path(a.output_dir) / "figures"
+    tab = Path(a.table_dir) if a.table_dir else Path(a.output_dir) / "tables"
+    s = build(a.output_dir, fig, tab, estimand=a.estimand, event=a.event)
     print(f"[sim.report_study_a] {len(s)} summary rows; "
-          f"figures -> {a.fig_dir}, tables -> {a.table_dir}")
+          f"figures -> {fig}, tables -> {tab}")
     return 0
 
 

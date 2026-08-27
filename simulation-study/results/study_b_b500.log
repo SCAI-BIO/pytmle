@@ -1,0 +1,12 @@
+[sim.study_b] B_BASEb500_n250_oracle: n=250 arm=oracle reps=100 B=500
+  [B_BASEb500_n250_oracle] shard 1/10
+  [B_BASEb500_n250_oracle] shard 2/10
+  [B_BASEb500_n250_oracle] shard 3/10
+  [B_BASEb500_n250_oracle] shard 4/10
+  [B_BASEb500_n250_oracle] shard 5/10
+  [B_BASEb500_n250_oracle] shard 6/10
+  [B_BASEb500_n250_oracle] shard 7/10
+  [B_BASEb500_n250_oracle] shard 8/10
+  [B_BASEb500_n250_oracle] shard 9/10
+  [B_BASEb500_n250_oracle] shard 10/10
+[sim.study_b] done

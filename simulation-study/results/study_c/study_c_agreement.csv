@@ -1,0 +1,34 @@
+implementation,vs,tier,quantity,statistic,tolerance,expect,note,n,compared,pairs,mean_diff,mean_abs_diff,max_abs_diff,as_expected,skipped,skip_reason
+tmle (concrete),tmle,1,est,difference,0.002,diverge,concrete 1.0.8 still carries the FINDINGS 9 defect; divergence here is the expected result and its size estimates the defect,500.0,targeting increment,1500,0.0005873612020678671,0.010599120292265767,0.04427929472879133,True,False,
+tmle (concrete),tmle,1,est,difference,0.002,diverge,concrete 1.0.8 still carries the FINDINGS 9 defect; divergence here is the expected result and its size estimates the defect,1000.0,targeting increment,1500,0.0005160738355374808,0.007194522221775917,0.031163256650900945,True,False,
+tmle (concrete),tmle,1,est,difference,0.002,diverge,concrete 1.0.8 still carries the FINDINGS 9 defect; divergence here is the expected result and its size estimates the defect,2000.0,targeting increment,450,-0.00018035512359494042,0.004878594697272643,0.021606533577783374,True,False,
+gcomp (concrete),gcomp,1,est,difference,0.005,agree,"plug-in on concrete's coarser grid; unaffected by the targeted-update defect, so this must agree",500.0,level,1500,-0.0007934457764526724,0.0007934457764526724,0.0026865085212924855,True,False,
+gcomp (concrete),gcomp,1,est,difference,0.005,agree,"plug-in on concrete's coarser grid; unaffected by the targeted-update defect, so this must agree",1000.0,level,1500,-0.00038808657486317995,0.00038808657486317995,0.000956026493520945,True,False,
+gcomp (concrete),gcomp,1,est,difference,0.005,agree,"plug-in on concrete's coarser grid; unaffected by the targeted-update defect, so this must agree",2000.0,level,450,-0.00019010402207286534,0.00019010402207286534,0.00041208847553483863,True,False,
+ate:GFORMULA,gcomp,2,est,difference,0.01,agree,exact Aalen-Johansen vs discrete plug-in,500.0,level,1500,-0.00010209370440131641,0.00010209438013444827,0.0005896857193386507,True,False,
+ate:GFORMULA,gcomp,2,est,difference,0.01,agree,exact Aalen-Johansen vs discrete plug-in,1000.0,level,1500,-4.8724090510080946e-05,4.8724090510080946e-05,0.00019114058162647551,True,False,
+ate:GFORMULA,gcomp,2,est,difference,0.01,agree,exact Aalen-Johansen vs discrete plug-in,2000.0,level,450,-2.3247269768545318e-05,2.3247269768545318e-05,6.633325403263002e-05,True,False,
+ate:IPTW,ipw,2,est,difference,0.01,agree,,500.0,level,1500,1.4045012498626395e-05,1.6131810016094806e-05,0.000162020496665638,True,False,
+ate:IPTW,ipw,2,est,difference,0.01,agree,,1000.0,level,1500,6.498002695106789e-06,6.791474606230141e-06,4.333491687696922e-05,True,False,
+ate:IPTW,ipw,2,est,difference,0.01,agree,,2000.0,level,450,3.1962231080219042e-06,3.2155675310200423e-06,1.690288063327383e-05,True,False,
+ate:AIPTW,aipw,2,est,difference,0.01,agree,,500.0,level,1500,-0.00010170693108081799,0.0001017272458216763,0.0005642450480669026,True,False,
+ate:AIPTW,aipw,2,est,difference,0.01,agree,,1000.0,level,1500,-4.8849677568384395e-05,4.8849677568384395e-05,0.00019507764091006297,True,False,
+ate:AIPTW,aipw,2,est,difference,0.01,agree,,2000.0,level,450,-2.277901429952671e-05,2.2931457469598083e-05,6.961721704618062e-05,True,False,
+tmle (concrete),tmle,1,se,log ratio,0.002,agree,"same IC formula on both sides, so the SE must agree even though the point estimate diverges",500.0,log ratio,1500,-0.0006118444634605879,0.0006585690483368312,0.004577860489760187,True,False,
+tmle (concrete),tmle,1,se,log ratio,0.002,agree,"same IC formula on both sides, so the SE must agree even though the point estimate diverges",1000.0,log ratio,1500,-0.00030852891161385523,0.00033087401405304474,0.0017090908131060204,True,False,
+tmle (concrete),tmle,1,se,log ratio,0.002,agree,"same IC formula on both sides, so the SE must agree even though the point estimate diverges",2000.0,log ratio,450,-0.00014144807493547318,0.00015968272204819217,0.0004251647511794773,True,False,
+gcomp (concrete),gcomp,1,se,log ratio,,agree,"plug-in on concrete's coarser grid; unaffected by the targeted-update defect, so this must agree",,log ratio,0,,,,,True,se not available for gcomp (concrete) or gcomp
+ate:GFORMULA,gcomp,2,se,log ratio,,agree,exact Aalen-Johansen vs discrete plug-in,,log ratio,0,,,,,True,se not available for ate:GFORMULA or gcomp
+ate:IPTW,ipw,2,se,log ratio,0.01,diverge,PyTMLE's IPW SE is conservative -- it treats the weights as known; riskRegression propagates nuisance estimation and is the calibrated one,500.0,log ratio,1500,0.13350812687949504,0.13350812687949504,0.26829734306468456,True,False,
+ate:IPTW,ipw,2,se,log ratio,0.01,diverge,PyTMLE's IPW SE is conservative -- it treats the weights as known; riskRegression propagates nuisance estimation and is the calibrated one,1000.0,log ratio,1500,0.1304938895446684,0.1304938895446684,0.23124474577380172,True,False,
+ate:IPTW,ipw,2,se,log ratio,0.01,diverge,PyTMLE's IPW SE is conservative -- it treats the weights as known; riskRegression propagates nuisance estimation and is the calibrated one,2000.0,log ratio,450,0.12838880974112057,0.12838880974112057,0.21725455634550067,True,False,
+ate:AIPTW,aipw,2,se,log ratio,0.01,agree,,500.0,log ratio,1500,0.003612545280212125,0.005996256823429329,0.04643894885573961,True,False,
+ate:AIPTW,aipw,2,se,log ratio,0.01,agree,,1000.0,log ratio,1500,0.0015249761869713587,0.003817821836487138,0.021000956041175755,True,False,
+ate:AIPTW,aipw,2,se,log ratio,0.01,agree,,2000.0,log ratio,450,0.0008704376128762516,0.002401648011029059,0.010671717154475055,True,False,
+tmle (concrete),tmle,1,pn_eic,difference,0.001,agree,"both solve their own stopping criterion; the residual gap is the width of that band, not a discrepancy",500.0,level,3000,3.121052253725465e-06,2.232355484745844e-05,0.0029695794474301324,True,False,
+tmle (concrete),tmle,1,pn_eic,difference,0.001,agree,"both solve their own stopping criterion; the residual gap is the width of that band, not a discrepancy",1000.0,level,3000,4.6444052937724455e-07,2.564627238632439e-06,0.0010641876203468727,True,False,
+tmle (concrete),tmle,1,pn_eic,difference,0.001,agree,"both solve their own stopping criterion; the residual gap is the width of that band, not a discrepancy",2000.0,level,900,-1.7810537127740028e-06,2.3643829311342985e-06,0.0004821271302170655,True,False,
+gcomp (concrete),gcomp,1,pn_eic,difference,,agree,"plug-in on concrete's coarser grid; unaffected by the targeted-update defect, so this must agree",,difference,0,,,,,True,pn_eic not available for gcomp (concrete) or gcomp
+ate:GFORMULA,gcomp,2,pn_eic,difference,,agree,exact Aalen-Johansen vs discrete plug-in,,difference,0,,,,,True,pn_eic not available for ate:GFORMULA or gcomp
+ate:IPTW,ipw,2,pn_eic,difference,,agree,,,difference,0,,,,,True,pn_eic not available for ate:IPTW or ipw
+ate:AIPTW,aipw,2,pn_eic,difference,,agree,,,difference,0,,,,,True,pn_eic not available for ate:AIPTW or aipw

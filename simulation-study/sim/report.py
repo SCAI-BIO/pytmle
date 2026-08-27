@@ -84,36 +84,68 @@ def runtimes(
     # one row per (cell, implementation, replicate)
     per_rep = sub.drop_duplicates(["cell", "estimator", "rep"])
 
+    return _runtime_agg(per_rep.rename(columns={"estimator": "implementation"}),
+                        ["cell", "implementation"])
+
+
+def _runtime_agg(per_rep: pd.DataFrame, group_keys) -> pd.DataFrame:
+    """Aggregate one row per (group) from one row per replicate.
+
+    Shared by Study A's `runtimes()` and the matched benchmark so the two tables
+    cannot drift apart. The frame must carry `stage2_seconds`, `n`, and ideally
+    `tmle_steps` and `n_times`.
+
+    **Refuses to mix contended and uncontended timings.** After the matched
+    benchmark exists, the repo holds two columns called `stage2_seconds` with
+    very different validity -- one measured 8-way parallel and multi-threaded,
+    one measured alone and pinned. Averaging them would produce a number that is
+    neither, so a group containing both is an error rather than a mean.
+    """
+    if "contended" in per_rep and per_rep["contended"].nunique(dropna=False) > 1:
+        raise ValueError(
+            "refusing to aggregate contended and uncontended runtimes together: "
+            "they are not the same measurement. Filter to one before calling.")
+
+    emit_n = "n" not in group_keys   # else reset_index collides with the key
+
     def _agg(g: pd.DataFrame) -> pd.Series:
         s = g["stage2_seconds"].to_numpy(dtype=float)
-        steps = g["tmle_steps"].to_numpy(dtype=float) if "tmle_steps" in g else np.array([np.nan])
+        steps = (g["tmle_steps"].to_numpy(dtype=float) if "tmle_steps" in g
+                 else np.full(len(g), np.nan))
+        nt = (g["n_times"].to_numpy(dtype=float) if "n_times" in g
+              else np.full(len(g), np.nan))
+        n_val = float(g["_n"].iloc[0])
         with np.errstate(invalid="ignore", divide="ignore"):
             per_step = s / steps
-        return pd.Series(
-            {
-                "n": int(g["n"].iloc[0]),
-                "median_n_times": float(np.median(g["n_times"])) if "n_times" in g else np.nan,
-                "n_runs": int(len(g)),
-                "mean_s": float(np.mean(s)),
-                "sd_s": float(np.std(s, ddof=1)) if len(s) > 1 else np.nan,
-                "median_s": float(np.median(s)),
-                "q05_s": float(np.quantile(s, 0.05)),
-                "q95_s": float(np.quantile(s, 0.95)),
-                "min_s": float(np.min(s)),
-                "max_s": float(np.max(s)),
-                "total_s": float(np.sum(s)),
-                "median_steps": float(np.nanmedian(steps)),
-                "median_s_per_step": float(np.nanmedian(per_step)),
-            }
-        )
+            # per step and per grid cell: cost is O(n * n_times) per update, and
+            # each implementation is normalised by *its own* grid, since concrete
+            # builds a coarser one and would otherwise bank that as free speed
+            per_cell = per_step / (n_val * nt)
+        vals = {"n": int(n_val)} if emit_n else {}
+        return pd.Series({
+            **vals,
+            "median_n_times": float(np.nanmedian(nt)),
+            "n_runs": int(len(g)),
+            "mean_s": float(np.mean(s)),
+            "sd_s": float(np.std(s, ddof=1)) if len(s) > 1 else np.nan,
+            "median_s": float(np.median(s)),
+            "q05_s": float(np.quantile(s, 0.05)),
+            "q95_s": float(np.quantile(s, 0.95)),
+            "min_s": float(np.min(s)),
+            "max_s": float(np.max(s)),
+            "total_s": float(np.sum(s)),
+            "median_steps": float(np.nanmedian(steps)),
+            "median_s_per_step": float(np.nanmedian(per_step)),
+            "median_ns_per_step_cell": float(np.nanmedian(per_cell) * 1e9),
+        })
 
-    out = (
-        per_rep.groupby(["cell", "estimator"], dropna=False)
-        .apply(_agg, include_groups=False)
-        .reset_index()
-        .rename(columns={"estimator": "implementation"})
-    )
-    return out.sort_values(["cell", "implementation"]).reset_index(drop=True)
+    # `n` is a grouping key for the benchmark and `include_groups=False` would
+    # consume it, so it is carried through under an alias the group cannot claim
+    per_rep = per_rep.copy()
+    per_rep["_n"] = per_rep["n"]
+    out = (per_rep.groupby(list(group_keys), dropna=False)
+           .apply(_agg, include_groups=False).reset_index())
+    return out.sort_values(list(group_keys)).reset_index(drop=True)
 
 
 def diagnostics(output_dir: Path | str, cells: Optional[Sequence[str]] = None) -> pd.DataFrame:

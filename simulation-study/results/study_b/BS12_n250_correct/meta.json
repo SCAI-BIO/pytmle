@@ -1,0 +1,14 @@
+{
+  "cell": "BS12_n250_correct",
+  "n": 250,
+  "arm": "correct",
+  "reps": 250,
+  "n_bootstrap": 100,
+  "config": "base",
+  "target_times": [
+    0.477676,
+    3.11961,
+    8.608445
+  ],
+  "min_nuisance": 0.01
+}

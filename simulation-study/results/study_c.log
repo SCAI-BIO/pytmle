@@ -1,0 +1,24 @@
+[sim.study_c] n = 500, 500 replicates
+  [n500] exported 500 replicates
+  [n500] fitting nuisances in R and running the R comparators, 8 shards ...
+  [n500] concrete second stage, 8 shards ...
+  [n500] PyTMLE estimators: 48000 rows
+[sim.study_c] n = 1000, 500 replicates
+  [n1000] exported 500 replicates
+  [n1000] fitting nuisances in R and running the R comparators, 8 shards ...
+  [n1000] concrete second stage, 8 shards ...
+  [n1000] PyTMLE estimators: 48000 rows
+[sim.study_c] n = 2000, 150 replicates
+  [n2000] exported 150 replicates
+  [n2000] fitting nuisances in R and running the R comparators, 8 shards ...
+  [n2000] concrete second stage, 8 shards ...
+  [n2000] PyTMLE estimators: 14400 rows
+[sim.study_c] all stages done
+Traceback (most recent call last):
+  File "/home/jguski/.conda/envs/pytmle-sim/lib/python3.10/runpy.py", line 196, in _run_module_as_main
+    return _run_code(code, main_globals, None,
+  File "/home/jguski/.conda/envs/pytmle-sim/lib/python3.10/runpy.py", line 86, in _run_code
+    exec(code, run_globals)
+  File "/home/jguski/COMMUTE/tmle/pytmle/simulation-study/sim/study_c.py", line 402, in <module>
+  File "/home/jguski/COMMUTE/tmle/pytmle/simulation-study/sim/study_c.py", line 381, in main
+ModuleNotFoundError: No module named 'sim.study_c_report'

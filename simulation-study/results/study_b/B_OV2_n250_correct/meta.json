@@ -1,0 +1,31 @@
+{
+  "cell": "B_OV2_n250_correct",
+  "n": 250,
+  "arm": "correct",
+  "reps": 150,
+  "chunk": 5,
+  "n_bootstrap": 100,
+  "config": "base",
+  "target_times": [
+    0.477676,
+    3.11961,
+    8.608445
+  ],
+  "min_nuisance": 0.01,
+  "max_updates": 200,
+  "spec": {
+    "Q": "correct",
+    "pi": "correct",
+    "G": "correct"
+  },
+  "seed_key": "OV2_n250",
+  "params_override": {
+    "gamma": [
+      1.5,
+      -1.2,
+      0.9
+    ]
+  },
+  "axis": "overlap",
+  "level": "OV2"
+}

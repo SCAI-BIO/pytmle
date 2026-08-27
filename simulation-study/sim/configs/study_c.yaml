@@ -21,8 +21,7 @@
 #
 # Tiers of sharing, and the tolerance each is entitled to:
 #   1  byte-identical injected nuisances   PyTMLE, concrete          ~2e-3
-#   2  identical fitted model objects      riskRegression::ate, CSC  ~1e-2
-#   3  same model class, refit internally  AdjCuminc::adjDR          qualitative
+#   2  identical fitted model objects      riskRegression::ate       ~1e-2
 #
 # concrete is compared on the *targeting increment* (tmle - gcomp) rather than
 # the CIF level: the two build different time grids, which shifts the plug-in by
@@ -31,8 +30,8 @@
 
 name: study_c
 description: >
-  Estimator comparison under correct specification, against concrete,
-  riskRegression and AdjCuminc, plus the conventional cause-specific Cox.
+  Estimator comparison under correct specification, against concrete and
+  riskRegression::ate, on point estimates, standard errors and the score.
 
 defaults:
   config: base

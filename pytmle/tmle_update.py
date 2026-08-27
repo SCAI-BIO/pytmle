@@ -295,13 +295,13 @@ def tmle_loop(
             return new_ests, norm_pn_eics, True, step_num
 
     # Warning for non-convergence
-    if step_num == 0:
-        warnings.warn(
-            "Warning: TMLE did not perform any updates. Estimates may not have the desired asymptotic properties.",
-            RuntimeWarning,
-        )
-    else:
-        if verbose >= 1:
+    if verbose >= 1:
+        if step_num == 0:
+            warnings.warn(
+                "Warning: TMLE did not perform any updates. Estimates may not have the desired asymptotic properties.",
+                RuntimeWarning,
+            )
+        else:
             warnings.warn(
                 f"Warning: TMLE has not converged by step {max_updates}. Estimates may not have the desired asymptotic properties.",
                 RuntimeWarning,

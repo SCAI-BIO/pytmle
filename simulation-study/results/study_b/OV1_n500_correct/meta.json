@@ -1,0 +1,31 @@
+{
+  "cell": "OV1_n500_correct",
+  "n": 500,
+  "arm": "correct",
+  "reps": 500,
+  "chunk": 25,
+  "n_bootstrap": 0,
+  "config": "base",
+  "target_times": [
+    0.477676,
+    3.11961,
+    8.608445
+  ],
+  "min_nuisance": 0.01,
+  "max_updates": 200,
+  "spec": {
+    "Q": "correct",
+    "pi": "correct",
+    "G": "correct"
+  },
+  "seed_key": "OV1_n500",
+  "params_override": {
+    "gamma": [
+      1.0,
+      -0.8,
+      0.6
+    ]
+  },
+  "axis": "overlap",
+  "level": "OV1"
+}

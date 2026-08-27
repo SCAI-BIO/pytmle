@@ -13,11 +13,9 @@
 #      silent mismatch there is exactly what this study exists to rule out.
 #   2. Run the R estimators on the *same* fitted objects: riskRegression::ate in
 #      its three flavours and the conventional cause-specific Cox (tier 2), plus
-#      AdjCuminc::adjDR, which refits internally and so is only tier 3.
 #
 # A conventional cause-specific hazard ratio is not on the risk-difference scale
 # and must never be scored for bias against the RD truth. It is emitted with
-# estimand = "loghr" so downstream code cannot mix it in by accident.
 
 suppressMessages({
   library(survival)
@@ -38,9 +36,6 @@ REPS     <- suppressWarnings(as.integer(getarg("--reps", NA)))
 FROM     <- suppressWarnings(as.integer(getarg("--from", NA)))
 TO       <- suppressWarnings(as.integer(getarg("--to", NA)))
 SHARD    <- getarg("--shard", NA)
-SKIP_DR  <- !is.na(match("--no-adjdr", args))
-HAVE_DR  <- requireNamespace("AdjCuminc", quietly = TRUE) && !SKIP_DR
-if (!HAVE_DR && !SKIP_DR) message("AdjCuminc not available -- adjDR rows skipped")
 
 taus <- as.numeric(read_parquet(file.path(DIR, "taus.parquet"))$time)
 data_files <- sort(list.files(DIR, pattern = "^rep[0-9]+_data\\.parquet$",
@@ -121,44 +116,6 @@ for (path in data_files) {
         event = g$event, time = g$time, est = g$est, se = g$se,
         ci_lo = g$ci_lo, ci_hi = g$ci_hi,
         stage2_seconds = el, tier = 2L, source = "riskRegression")
-    }
-
-    # --- tier 2: the conventional analysis a practitioner would run --------
-    # A conditional, non-collapsible log hazard ratio per cause. Reported on its
-    # own scale against the DGP's theta, never against the marginal RD.
-    t0 <- Sys.time()
-    lhr <- vapply(1:2, function(j) unname(coef(csc$models[[j]])["A1"]), 0.0)
-    lse <- vapply(1:2, function(j) sqrt(diag(vcov(csc$models[[j]])))[["A1"]], 0.0)
-    el <- as.numeric(Sys.time() - t0, units = "secs")
-    out[[length(out) + 1]] <- data.table(
-      rep = i, estimator = "csc:loghr", estimand = "loghr",
-      event = 1:2, time = NA_real_, est = lhr, se = lse,
-      ci_lo = lhr - 1.96 * lse, ci_hi = lhr + 1.96 * lse,
-      stage2_seconds = el, tier = 2L, source = "riskRegression")
-
-    # --- tier 3: adjDR refits internally, so only the model class is shared -
-    if (HAVE_DR) {
-      dd <- copy(df)
-      dd[, `:=`(treatment = factor(ifelse(group == 1, "treat", "control"),
-                                   levels = c("control", "treat")),
-                obs_time = event_time,
-                status = factor(as.character(event_indicator),
-                                levels = c("0", "1", "2")))]
-      t0 <- Sys.time()
-      dr <- AdjCuminc::adjDR(Hist(obs_time, status) ~ treatment + d2 + d3 + w_cont,
-                             strata = "treatment", data = dd, times = taus)
-      el <- as.numeric(Sys.time() - t0, units = "secs")
-      dt <- as.data.table(dr)
-      long <- melt(dt, id.vars = c("time", "strata"), measure.vars = c("1", "2"),
-                   variable.name = "event", value.name = "risk")
-      long[, arm := ifelse(grepl("treat$", strata), 1L, 0L)]
-      w <- dcast(long, time + event ~ arm, value.var = "risk")
-      out[[length(out) + 1]] <- data.table(
-        rep = i, estimator = "adjDR", estimand = "rd",
-        event = as.integer(as.character(w$event)), time = as.numeric(w$time),
-        est = as.numeric(w$`1`) - as.numeric(w$`0`), se = NA_real_,
-        ci_lo = NA_real_, ci_hi = NA_real_,
-        stage2_seconds = el, tier = 3L, source = "AdjCuminc")
     }
 
     rbindlist(out, fill = TRUE)

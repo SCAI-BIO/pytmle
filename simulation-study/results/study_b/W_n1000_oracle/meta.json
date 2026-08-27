@@ -1,0 +1,25 @@
+{
+  "cell": "W_n1000_oracle",
+  "n": 1000,
+  "arm": "oracle",
+  "reps": 1000,
+  "chunk": 25,
+  "n_bootstrap": 0,
+  "config": "base",
+  "target_times": [
+    0.477676,
+    3.11961,
+    8.608445
+  ],
+  "min_nuisance": 0.01,
+  "max_updates": 200,
+  "spec": {
+    "Q": "oracle",
+    "pi": "oracle",
+    "G": "oracle"
+  },
+  "seed_key": "W_n1000_shared",
+  "params_override": {},
+  "axis": "base",
+  "level": "base"
+}

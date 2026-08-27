@@ -1,0 +1,17 @@
+{
+  "cell": "C1_n1000",
+  "config": "threshold",
+  "n": 1000,
+  "reps": 500,
+  "spec": {
+    "Q": "correct",
+    "pi": "correct",
+    "G": "correct"
+  },
+  "target_times": [
+    0.513946,
+    1.149562,
+    2.66982
+  ],
+  "min_nuisance": 0.01
+}

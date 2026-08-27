@@ -21,6 +21,14 @@ suppressMessages({
   library(concrete); library(data.table); library(survival); library(arrow)
 })
 
+# data.table defaults to half the cores (10 of 20 on this machine) and concrete
+# leans on it heavily, so an unpinned run is silently multi-threaded and its
+# runtime is not comparable with anything. The BLAS R links is the *pthreads*
+# OpenBLAS build and reads its thread count at load time, so that half has to be
+# set by the caller's environment (OPENBLAS_NUM_THREADS/OMP_NUM_THREADS) before
+# this process starts -- it cannot be fixed from in here.
+setDTthreads(1L)
+
 args <- commandArgs(trailingOnly = TRUE)
 getarg <- function(f, d = NULL) { i <- match(f, args); if (is.na(i)) d else args[[i + 1]] }
 DIR  <- getarg("--dir", "results/c5diag")
@@ -33,6 +41,10 @@ MINN <- as.numeric(getarg("--min-nuisance", "0.01"))
 FROM  <- suppressWarnings(as.integer(getarg("--from", NA)))
 TO    <- suppressWarnings(as.integer(getarg("--to", NA)))
 SHARD <- getarg("--shard", NA)
+# Timing repeats for the matched benchmark. The fastest run is kept: a slow one
+# means something else touched the machine, a fast one cannot mean less work was
+# done. 1 reproduces the previous single-pass behaviour exactly.
+REPEATS <- as.integer(getarg("--repeats", "1"))
 
 taus <- as.numeric(read_parquet(file.path(DIR, "taus.parquet"))$time)
 
@@ -58,7 +70,8 @@ step_at <- function(mat, from_grid, to_grid) {
 # One failing replicate must not cost the whole cell: concrete raises from inside
 # an lapply when a fit degenerates, and an unguarded loop loses every replicate
 # computed so far. Failures are recorded and reported instead.
-out <- list(); n_fail <- 0L; first_err <- NULL
+out <- list()
+eic_out <- list(); n_fail <- 0L; first_err <- NULL
 
 idx <- seq_len(REPS) - 1L
 if (!is.na(FROM)) idx <- idx[idx >= FROM]
@@ -131,29 +144,64 @@ for (i in idx) {
   # the influence curve plus the targeted update. getInitialEstimate above is
   # scaffolding whose output is entirely overwritten, so it is excluded here to
   # keep the two numbers like-for-like.
-  t0 <- Sys.time()
-  est <- concrete:::getEIC(Estimates = est, Data = AL$DataTable, Regime = AL$Regime,
-                           TargetEvent = AL$TargetEvent, TargetTime = AL$TargetTime,
-                           MinNuisance = MINN, GComp = TRUE)
-  SummEIC <- do.call(rbind, lapply(seq_along(est), function(z)
-    cbind(Trt = names(est)[z], est[[z]][["SummEIC"]])))
-  NormPnEIC <- concrete:::getNormPnEIC(
-    SummEIC[Time %in% AL$TargetTime & Event %in% AL$TargetEvent, PnEIC])
-  est <- concrete:::doTmleUpdate(Estimates = est, SummEIC = SummEIC, Data = AL$DataTable,
-                                 TargetEvent = AL$TargetEvent, TargetTime = AL$TargetTime,
-                                 MaxUpdateIter = 200, OneStepEps = AL$OneStepEps,
-                                 NormPnEIC = NormPnEIC, Verbose = FALSE)
+  # The untargeted state, kept aside. doTmleUpdate replaces the hazards with
+  # targeted ones, so a second timed repeat over the same object would start
+  # from an already-converged fit and measure nothing. R's copy-on-modify makes
+  # this snapshot cheap and sufficient: every mutation below reassigns.
+  est_clean <- est
+
+  stage2 <- Inf; cpu2 <- NA_real_
+  for (.k in seq_len(REPEATS)) {
+    est <- est_clean
+    t0 <- Sys.time(); p0 <- proc.time()
+    est <- concrete:::getEIC(Estimates = est, Data = AL$DataTable, Regime = AL$Regime,
+                             TargetEvent = AL$TargetEvent, TargetTime = AL$TargetTime,
+                             MinNuisance = MINN, GComp = TRUE)
+    SummEIC <- do.call(rbind, lapply(seq_along(est), function(z)
+      cbind(Trt = names(est)[z], est[[z]][["SummEIC"]])))
+    NormPnEIC <- concrete:::getNormPnEIC(
+      SummEIC[Time %in% AL$TargetTime & Event %in% AL$TargetEvent, PnEIC])
+    est <- concrete:::doTmleUpdate(Estimates = est, SummEIC = SummEIC, Data = AL$DataTable,
+                                   TargetEvent = AL$TargetEvent, TargetTime = AL$TargetTime,
+                                   MaxUpdateIter = 200, OneStepEps = AL$OneStepEps,
+                                   NormPnEIC = NormPnEIC, Verbose = FALSE)
+    .w <- as.numeric(Sys.time() - t0, units = "secs")
+    if (.w < stage2) {
+      stage2 <- .w
+      cpu2 <- sum((proc.time() - p0)[c("user.self", "sys.self")])
+    }
+  }
   attr(est, "TargetTime") <- AL$TargetTime; attr(est, "T.tilde") <- dt$time
   attr(est, "TargetEvent") <- AL$TargetEvent; attr(est, "Delta") <- dt$status
   attr(est, "GComp") <- TRUE
   class(est) <- union("ConcreteEst", class(est))
 
-  stage2 <- as.numeric(Sys.time() - t0, units = "secs")
+  # The *post-update* summary: doTmleUpdate refreshes SummEIC on every accepted
+  # step, so after it returns this is Pn D*(Q*). The SummEIC built above, before
+  # the update, is a different object and must not be reused here. Columns match
+  # PyTMLE's summarize_ic exactly, which is what makes them comparable at all.
+  # Extracted after the clock stops so it cannot inflate the runtime.
+  eic <- do.call(rbind, lapply(seq_along(est), function(z)
+    cbind(Trt = names(est)[z], as.data.table(est[[z]][["SummEIC"]]))))
+  eic <- as.data.table(eic)
+  norms <- attr(est, "NormPnEICs")
+  eic[, `:=`(rep = i, n = n, n_times = length(attr(est, "Times")),
+             norm_pn_eic_first = if (length(norms)) norms[[1]] else NA_real_,
+             norm_pn_eic_last  = if (length(norms)) norms[[length(norms)]] else NA_real_)]
+  # plain `<-`: the tryCatch body evaluates in the calling frame, which here is
+  # the global environment. `<<-` on a replacement form (`x[[i]] <<- v`) starts
+  # its lookup in the *parent* environment, which at top level skips globalenv
+  # and searches the package path -- so it fails with "object not found".
+  eic_out[[length(eic_out) + 1L]] <- eic
 
-  o <- as.data.table(getOutput(est, Estimand = "RD", GComp = TRUE))
+  # "Risk" as well as "RD": concrete computes a per-arm absolute-risk SE
+  # (seEIC/sqrt(n), getOutput.R:170) that PyTMLE also emits, and asking only for
+  # the difference threw away half the standard errors available to compare.
+  o <- as.data.table(getOutput(est, Estimand = c("RD", "Risk"), GComp = TRUE))
   conv <- attr(est, "TmleConverged")
   o[, `:=`(rep = i, converged = isTRUE(conv$converged), steps = conv$step,
-           stage2_seconds = stage2, n = n)]
+           stage2_seconds = stage2, stage2_cpu_seconds = cpu2,
+           n_times = length(attr(est, "Times")), n = n)]
   o
  }, error = function(e) { n_fail <<- n_fail + 1L
                           if (is.null(first_err)) first_err <<- conditionMessage(e)
@@ -167,6 +215,24 @@ res <- rbindlist(out, fill = TRUE)
 out_name <- if (is.na(SHARD)) "concrete_estimates.parquet" else
   sprintf("concrete_estimates_%s.parquet", SHARD)
 write_parquet(res, file.path(DIR, out_name))
+
+if (length(eic_out)) {
+  eic_res <- rbindlist(eic_out, fill = TRUE)
+  setnames(eic_res, c("PnEIC", "seEIC", "seEIC/(sqrt(n)log(n))"),
+           c("pn_eic", "se_eic", "eic_crit"), skip_absent = TRUE)
+  setnames(eic_res, c("Time", "Event"), c("time", "event"), skip_absent = TRUE)
+  # concrete labels arms by the regime string; map to the same 1/0 the Python
+  # side uses, and refuse an unrecognised label rather than emitting NaN
+  trt <- as.character(eic_res$Trt)
+  grp <- ifelse(grepl("1", trt), 1L, ifelse(grepl("0", trt), 0L, NA_integer_))
+  if (anyNA(grp)) stop("unrecognised intervention label(s): ",
+                       paste(unique(trt[is.na(grp)]), collapse = ", "))
+  eic_res[, `:=`(group = grp, estimator = "tmle (concrete)", source = "concrete")]
+  eic_res[, Trt := NULL]
+  eic_name <- if (is.na(SHARD)) "concrete_eic.parquet" else
+    sprintf("concrete_eic_%s.parquet", SHARD)
+  write_parquet(eic_res, file.path(DIR, eic_name))
+}
 cat("wrote", nrow(res), "rows from", length(out), "of", length(idx), "replicates")
 if (n_fail) cat("  (", n_fail, " failed; first error: ", first_err, ")", sep = "")
 cat("\n")

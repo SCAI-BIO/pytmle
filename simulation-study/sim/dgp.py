@@ -109,6 +109,32 @@ class DGPParams:
     # --- extra noise covariates (Study D, dimension axis) -----------------
     n_noise: int = 0
 
+    #: Correlation between the noise block and the continuous confounder.
+    #: 0 draws inert independent noise; rho > 0 makes (w_cont, z_1..z_k) jointly
+    #: AR(1) with corr(i, j) = rho^|i-j| and unit marginals -- Fan et al. (2024)
+    #: run their high-dimensional design under exactly this pair of structures.
+    #:
+    #: The confounder sits *inside* the AR(1) block on purpose, and unit
+    #: marginals mean `w_cont` keeps its law, so the estimand is untouched.
+    #:
+    #: **This field is inert for the `oracle` and `correct` arms, by algebra.**
+    #: An unpenalised MLE depends on the design only through its column *span*,
+    #: and `z_k = rho*z_{k-1} + sqrt(1-rho^2)*eps_k` is an invertible linear map
+    #: of `(w_cont, eps)`. When `w_cont` is already in the design, `[w_cont, z]`
+    #: therefore spans exactly what `[w_cont, eps]` spans, and the fitted values
+    #: are identical -- measured at 6.5e-4 on the propensity (optimiser
+    #: tolerance) and 6e-7 on the hazards.
+    #:
+    #: Correlation bites only where the span actually changes: under a penalised
+    #: or selection-based fit, which shrinks in the original coordinates and is
+    #: not equivariant (this is why the structure is central for Fan et al.), or
+    #: under the `wrong` propensity arm, where `w_cont` is omitted so correlated
+    #: noise partially recovers it -- measured at 9.6e-2, a real effect.
+    #:
+    #: Kept because it costs nothing, is covered by a test that pins the above,
+    #: and becomes live the moment a penalised learner arm exists.
+    noise_rho: float = 0.0
+
     # --- administrative ---------------------------------------------------
     n_causes: int = 2
 
@@ -170,6 +196,42 @@ def _draw_covariates(n: int, rng: np.random.Generator) -> tuple[np.ndarray, np.n
     w_cat = rng.integers(0, 3, size=n)
     w_cont = rng.normal(size=n)
     return w_cat, w_cont
+
+
+def _draw_noise(w_cont: np.ndarray, p: DGPParams, rng: np.random.Generator) -> np.ndarray:
+    """The inert covariate block, optionally AR(1)-correlated with ``w_cont``.
+
+    Drawn *conditionally* on ``w_cont`` rather than jointly with it, which is
+    what keeps the confounder's marginal law exactly N(0, 1) and therefore the
+    estimand unchanged. For a stationary AR(1) with unit variances the joint law
+    is a Gauss-Markov chain, so conditioning on the first element is just the
+    recursion started from it:
+
+        z_1 = rho * w_cont + sqrt(1 - rho^2) * eps_1
+        z_k = rho * z_{k-1} + sqrt(1 - rho^2) * eps_k
+
+    giving ``corr(w_cont, z_k) = rho^k`` and ``corr(z_i, z_j) = rho^|i-j|``, all
+    with unit variance.
+
+    At ``noise_rho == 0`` this issues the identical `rng.normal` call the module
+    made before the field existed, so every previously generated dataset still
+    reproduces bit-for-bit.
+    """
+    if not p.n_noise:
+        return np.zeros((len(w_cont), 0))
+    eps = rng.normal(size=(len(w_cont), p.n_noise))
+    rho = float(p.noise_rho)
+    if rho == 0.0:
+        return eps
+    if not -1.0 < rho < 1.0:
+        raise ValueError(f"noise_rho must lie in (-1, 1), got {rho}")
+    scale = np.sqrt(1.0 - rho**2)
+    out = np.empty_like(eps)
+    prev = np.asarray(w_cont, dtype=float)
+    for k in range(p.n_noise):
+        prev = rho * prev + scale * eps[:, k]
+        out[:, k] = prev
+    return out
 
 
 def cause_rates(X: np.ndarray, u: np.ndarray, a: np.ndarray | float, p: DGPParams):
@@ -259,7 +321,9 @@ def sample(n: int, p: DGPParams, rng: np.random.Generator, q: Optional[float] = 
     obs = np.minimum(t_event, c_time)
     delta = np.where(t_event <= c_time, cause, 0).astype(int)
 
-    noise = rng.normal(size=(n, p.n_noise)) if p.n_noise else np.zeros((n, 0))
+    # after any control resampling, so the correlation is with the realised
+    # w_cont rather than the pre-resample draw
+    noise = _draw_noise(X[:, 2], p, rng)
 
     data = {
         "event_time": obs,

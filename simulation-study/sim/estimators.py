@@ -43,6 +43,28 @@ COLUMNS = [
     "error",
     "seconds",
     "stage2_seconds",
+    # diagnostics needed to interpret a runtime or a score; columns, not attrs
+    "tmle_converged",
+    "tmle_steps",
+    # `n_times` is the grid the targeted update actually runs on, which is what
+    # a per-step cost has to be normalised by. PyTMLE truncates the injected
+    # grid at `max(target_times)` (`estimates.py:237-247`), so it is materially
+    # smaller than the input -- ~70 % of it at these target times, because the
+    # taus are the 30/50/70th percentiles of the observed-time distribution.
+    #
+    # This used to record the *input* grid instead. concrete reports its working
+    # grid, so the two were divided by different denominators and PyTMLE's
+    # per-cell cost came out ~30 % too low.
+    "n_times",
+    "n_times_input",
+    # Pn D* and its stopping criterion, at the targeted estimates. Same
+    # quantities concrete exposes as SummEIC, computed by the same formulas.
+    "pn_eic",
+    "se_eic",
+    "eic_crit",
+    # ||Pn D*|| at the first and last accepted step; concrete's NormPnEICs
+    "norm_pn_eic_first",
+    "norm_pn_eic_last",
 ]
 
 #: Implementations whose second-stage runtime is comparable across packages.
@@ -167,8 +189,105 @@ def run_tmle(
     is_tmle = out["estimator"] == "tmle"
     out.loc[is_tmle, "stage2_seconds"] = t_fit
     out.loc[out["estimator"] == "gcomp", "seconds"] = 0.0
+
+    # Diagnostics as *columns*, not attrs. They were on `out.attrs`, which
+    # `pd.concat` and `to_parquet` both discard -- `runner._one_rep` copies them
+    # out by hand, `study_c` never did, and that is why Study C's rows carry a
+    # runtime with no step count to normalise it by.
+    out["tmle_converged"] = bool(model.has_converged)
+    out["tmle_steps"] = int(model.step_num)
+    # The *working* grid, not the injected one -- see COLUMNS. Falls back to the
+    # input only if the update never built its estimates, in which case there is
+    # no per-step cost to normalise anyway.
+    _ue = getattr(model, "_updated_estimates", None)
+    out["n_times"] = int(len(_ue[key_1].times)) if _ue else int(
+        len(initial_estimates[key_1].times))
+    out["n_times_input"] = int(len(initial_estimates[key_1].times))
+    out = _attach_score(out, model, key_1=key_1, key_0=key_0)
+
+    # kept for backwards compatibility with runner._one_rep, which reads attrs
     out.attrs["tmle_converged"] = bool(model.has_converged)
     out.attrs["tmle_steps"] = int(model.step_num)
+    return out
+
+
+def _attach_score(out: pd.DataFrame, model, key_1: int = 1, key_0: int = 0) -> pd.DataFrame:
+    """Attach `Pn D*` and its stopping criterion to the targeted rows.
+
+    The score is what distinguishes "the same algorithm" from "the same answer".
+    Two implementations can agree on Psi while driving different estimating
+    equations to zero -- FINDINGS 9 is exactly that case -- so a cross-package
+    comparison that only differences point estimates cannot see the difference
+    that matters.
+
+    `summ_eic` is the *post-update* summary: `get_eic` recomputes it on every
+    accepted step, so after `fit()` it is `Pn D*(Q*)`. Columns `PnEIC`, `seEIC`
+    and `seEIC/(sqrt(n)log(n))` are computed by `summarize_ic`, whose formulas
+    concrete reproduces exactly in `summarizeIC` -- which is what makes these
+    comparable across the two packages at all.
+
+    Attached per arm on the risk rows, where `group` identifies the arm. The
+    contrast rows get no score: `Pn D*` is a property of a fit, not of a
+    difference of two fits, and `gcomp` has none at all since it does no
+    targeting.
+    """
+    for col in ("pn_eic", "se_eic", "eic_crit"):
+        out[col] = np.nan
+
+    # How far the update actually moved the score. concrete exposes the same
+    # trajectory as attr(est, "NormPnEICs"), so first/last are directly
+    # comparable and cost nothing -- unlike a "pre-update score", which concrete
+    # computes for free but PyTMLE only produces inside `run_aipw`, on a
+    # different object, and not at all when `aipw` is not requested.
+    norms = list(getattr(model, "norm_pn_eics", []) or [])
+    out["norm_pn_eic_first"] = float(norms[0]) if norms else np.nan
+    out["norm_pn_eic_last"] = float(norms[-1]) if norms else np.nan
+
+    ue = getattr(model, "_updated_estimates", None)
+    if not ue:
+        return out
+
+    # The full tidy summary, every arm and every event -- including the
+    # synthetic `event = -1` row, which both packages fold into their
+    # convergence criterion and which has no estimate row to hang off. Passed
+    # out on `attrs`, which survives within the process (run_all copies it) and
+    # is unpacked by the caller before any concat.
+    tidy = []
+    for arm in (key_1, key_0):
+        est = ue.get(arm)
+        summ = getattr(est, "summ_eic", None) if est is not None else None
+        if summ is None or not len(summ):
+            continue
+        t = summ.rename(columns={"Time": "time", "Event": "event",
+                                 "PnEIC": "pn_eic", "seEIC": "se_eic",
+                                 "seEIC/(sqrt(n)log(n))": "eic_crit"}).copy()
+        t["group"] = float(arm)
+        tidy.append(t)
+    if tidy:
+        eic = pd.concat(tidy, ignore_index=True)
+        eic["estimator"] = "tmle"
+        eic["source"] = "pytmle"
+        eic["n_times"] = int(len(ue[key_1].times))
+        eic["norm_pn_eic_first"] = out["norm_pn_eic_first"].iloc[0]
+        eic["norm_pn_eic_last"] = out["norm_pn_eic_last"].iloc[0]
+        out.attrs["eic"] = eic
+    for arm in (key_1, key_0):
+        est = ue.get(arm)
+        summ = getattr(est, "summ_eic", None) if est is not None else None
+        if summ is None or not len(summ):
+            continue
+        for _, r in summ.iterrows():
+            ev, tt = int(r["Event"]), float(r["Time"])
+            if ev < 0:                       # the synthetic event-free row
+                continue
+            m = ((out["estimator"] == "tmle") & (out["estimand"] == "risk")
+                 & (out["event"] == ev) & np.isclose(out["time"], tt)
+                 & (out["group"] == arm))
+            if not m.any():
+                continue
+            out.loc[m, "pn_eic"] = float(r["PnEIC"])
+            out.loc[m, "se_eic"] = float(r["seEIC"])
+            out.loc[m, "eic_crit"] = float(r["seEIC/(sqrt(n)log(n))"])
     return out
 
 
@@ -370,7 +489,7 @@ def run_ipw(
 # ---------------------------------------------------------------------------
 
 
-def run_all(
+def run_all(  # noqa: C901
     df: pd.DataFrame,
     initial_estimates: Dict[int, InitialEstimates],
     target_times: Sequence[float],
@@ -379,13 +498,20 @@ def run_all(
     min_nuisance: Optional[float] = 0.01,
     max_updates: int = 200,
     alpha: float = 0.05,
-) -> pd.DataFrame:
+    return_eic: bool = False,
+):
     parts: List[pd.DataFrame] = []
     meta = {}
     if "tmle" in which or "gcomp" in which:
         res = run_tmle(df, initial_estimates, target_times,
                        min_nuisance=min_nuisance, max_updates=max_updates, alpha=alpha)
         meta = dict(res.attrs)
+        # A DataFrame must never sit on `.attrs`: pd.concat compares attrs dicts
+        # for equality, and two frames with the same attrs *keys* then compare
+        # their values, which raises "truth value of a DataFrame is ambiguous".
+        # It is popped here and returned explicitly instead.
+        eic = meta.pop("eic", None)
+        res.attrs.pop("eic", None)
         res = res[res["estimator"].isin(which)]
         parts.append(res)
     if "aipw" in which:
@@ -394,7 +520,10 @@ def run_all(
     if "ipw" in which:
         parts.append(run_ipw(df, initial_estimates, target_times, target_events,
                              min_nuisance=min_nuisance, alpha=alpha))
-    out = pd.concat(parts, ignore_index=True)[COLUMNS]
+    # reindex rather than select: only the tmle rows carry the score and the
+    # step count, and an estimator that failed early carries neither, so a
+    # strict column selection would raise on exactly the rows worth keeping
+    out = pd.concat(parts, ignore_index=True).reindex(columns=COLUMNS)
     # PyTMLE's `Converged` flag arrives as a plain bool on targeted rows but can
     # come back float/NaN on g-computation rows, which leaves an object column
     # that pyarrow refuses to write ("Could not convert 1.0 with type float").
@@ -403,7 +532,12 @@ def run_all(
     out["converged"] = pd.array(
         [None if pd.isna(v) else bool(v) for v in out["converged"]], dtype="boolean"
     )
-    for col in ("est", "se", "ci_lo", "ci_hi", "seconds", "stage2_seconds"):
+    for col in ("est", "se", "ci_lo", "ci_hi", "seconds", "stage2_seconds",
+                "tmle_steps", "n_times", "pn_eic", "se_eic", "eic_crit",
+                "norm_pn_eic_first", "norm_pn_eic_last"):
         out[col] = pd.to_numeric(out[col], errors="coerce")
+    out["tmle_converged"] = pd.array(
+        [None if pd.isna(v) else bool(v) for v in out["tmle_converged"]], dtype="boolean"
+    )
     out.attrs.update(meta)
-    return out
+    return (out, eic) if return_eic else out

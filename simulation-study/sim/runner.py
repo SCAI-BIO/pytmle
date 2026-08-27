@@ -144,8 +144,18 @@ def _one_rep(args) -> pd.DataFrame:
         res["tmle_steps"] = res.attrs.get("tmle_steps", np.nan)
         res["censored_frac"] = float((sm.event_indicator == 0).mean())
         # grid size and target count: second-stage cost is O(n * n_times) per
-        # update step, so runtimes are only interpretable alongside these
-        res["n_times"] = int(len(np.unique(sm.event_times)))
+        # update step, so runtimes are only interpretable alongside these.
+        #
+        # `run_all` already reports the grid the update actually ran on, which
+        # PyTMLE truncates at `max(target_times)`. This line used to overwrite it
+        # with the count of *all* observed times -- ~1/0.7 too large here -- and
+        # the copy below then put that number on concrete's rows too, so both
+        # implementations' per-cell costs were understated by the same factor.
+        # Only fill it in if the estimator set produced no TMLE fit to read.
+        if "n_times" not in res or res["n_times"].isna().all():
+            res["n_times"] = int(len(np.unique(sm.event_times)))
+        if "n_times_input" not in res:
+            res["n_times_input"] = int(len(np.unique(sm.event_times)))
         res["n_target_times"] = len(taus)
         return res
     except Exception as exc:  # a replicate must never kill the run

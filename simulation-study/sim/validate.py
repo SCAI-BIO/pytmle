@@ -325,6 +325,22 @@ def rung3_compare(
 # ---------------------------------------------------------------------------
 
 
+#: Columns printed for rung 4, as a module constant so the contract is testable.
+#:
+#: **Every pivot key of `rung4_censoring_effect` must appear here.** `q_model` was
+#: a key and was left out, so each (estimator, estimand, event, time, regime) row
+#: printed twice -- once for Q correct, once for Q wrong -- with nothing to tell
+#: them apart. It is also the column the rung turns on: `bias_change` is ~0 in
+#: every `correct` row, which is double robustness holding against a misspecified
+#: censoring model, and can only be non-zero where Q is wrong.
+RUNG4_KEYS = ("estimator", "estimand", "event", "time", "regime", "q_model")
+
+RUNG4_COLUMNS = list(RUNG4_KEYS) + [
+    "bias_correct", "bias_wrong", "bias_change",
+    "coverage_correct", "coverage_wrong",
+]
+
+
 def rung4_censoring_effect(output_dir: Path | str, n_mc: int = 4_000_000) -> pd.DataFrame:
     """Does misspecifying the censoring model matter, and when?
 
@@ -445,14 +461,22 @@ def main(argv=None) -> int:
         print("\nrung 3: not run")
 
     rung4 = args.dir / "rung4"
-    if (rung4 / "R4_info_Gbad" / "meta.json").exists():
+    # Glob rather than name one cell. This checked for `R4_info_Gbad`, a name
+    # that stopped existing when the rung became a 2x2x2 and the cells were
+    # renamed `R4_{none,info}_Q{ok,bad}_G{ok,bad}` -- so a rung 4 that *had* run
+    # was silently reported as "not run". `rung4_censoring_effect` already parses
+    # the current names; only this gate was left behind.
+    if any(rung4.glob("R4_*/meta.json")):
         print("\n=== rung 4: informative censoring ===")
         try:
             r4 = rung4_censoring_effect(rung4, n_mc=args.truth_mc)
-            cols = ["estimator", "estimand", "event", "time", "regime",
-                    "bias_correct", "bias_wrong", "bias_change", "coverage_correct",
-                    "coverage_wrong"]
-            print(r4[[c for c in cols if c in r4.columns]].round(4).to_string(index=False))
+            # `q_model` is a pivot key, so without it every row appears twice --
+            # once for Q correct, once for Q wrong -- and they are
+            # indistinguishable. It is also the column the rung turns on: the
+            # informative signal lives in the Q-wrong row, where double
+            # robustness is switched off and G has to carry the estimate alone.
+            print(r4[[c for c in RUNG4_COLUMNS if c in r4.columns]]
+                  .round(4).to_string(index=False))
         except FileNotFoundError:
             print("  (incomplete)")
     else:

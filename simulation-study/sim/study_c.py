@@ -15,8 +15,7 @@ is trying to measure around.
 Three tiers of sharing, and the report has to say which applies to which row:
 
     tier 1  byte-identical injected nuisances   PyTMLE (tmle/gcomp/aipw/ipw), concrete
-    tier 2  identical fitted model objects      riskRegression::ate, conventional CSC
-    tier 3  same model class, refit internally  AdjCuminc::adjDR
+    tier 2  identical fitted model objects      riskRegression::ate
 
 Agreement tolerances are tiered for the same reason. PyTMLE and concrete share
 the discrete-hazard convention, so they should agree to ~1e-3 and that is the
@@ -126,17 +125,33 @@ def _one_python_replicate(args) -> pd.DataFrame:
     try:
         rep = _load_replicate(stub)
         ie = initial_estimates_from_r(rep)
-        res = run_all(rep["df"], ie, list(taus), target_events=[1, 2],
-                      which=which, min_nuisance=min_nuisance)
+        res, eic = run_all(rep["df"], ie, list(taus), target_events=[1, 2],
+                           which=which, min_nuisance=min_nuisance,
+                           return_eic=True)
     except Exception as exc:  # one bad replicate must not cost the rest
-        res = pd.DataFrame([{"estimator": None, "estimand": None, "event": np.nan,
-                             "time": np.nan, "group": np.nan, "est": np.nan,
-                             "error": f"{type(exc).__name__}: {exc}"}])
+        # Same column set as the success frame. A ragged error row would make
+        # pd.concat pad every other replicate with NaN columns and can leave
+        # parquet with an unwritable object dtype.
+        from .estimators import COLUMNS
+        res = pd.DataFrame([{c: np.nan for c in COLUMNS}])
+        res["estimator"] = None
+        res["estimand"] = None
+        res["error"] = f"{type(exc).__name__}: {exc}"
+        eic = None
     res = res.copy()
     res["rep"] = rep_id
     res["tier"] = 1
     res["source"] = "pytmle"
-    return res
+    # Timed inside an n_jobs worker pool, so this runtime is contended by
+    # construction. `sim.bench_stage2` produces the uncontended one. The flag
+    # stops `_runtime_agg` averaging the two together.
+    res["contended"] = True
+    if eic is not None and len(eic):
+        eic = eic.copy()
+        eic["rep"] = rep_id
+    else:
+        eic = None
+    return res, eic
 
 
 def run_python_estimators(
@@ -163,11 +178,48 @@ def run_python_estimators(
              for g in stubs]
 
     if n_jobs <= 1:
-        rows = [_one_python_replicate(t) for t in tasks]
+        pairs = [_one_python_replicate(t) for t in tasks]
     else:
         with ProcessPoolExecutor(max_workers=n_jobs) as ex:
-            rows = list(ex.map(_one_python_replicate, tasks))
-    return pd.concat(rows, ignore_index=True)
+            pairs = list(ex.map(_one_python_replicate, tasks))
+    rows = [r for r, _ in pairs]
+    eics = [e for _, e in pairs if e is not None]
+    out = pd.concat(rows, ignore_index=True)
+    # returned explicitly rather than on `.attrs`, which cannot hold a DataFrame
+    # without breaking pd.concat
+    return out, (pd.concat(eics, ignore_index=True) if eics else pd.DataFrame())
+
+
+def collect_study_c_eic(out_dir: Path | str) -> pd.DataFrame:
+    """The score frame for one sample size, both implementations stacked.
+
+    Kept separate from the estimates rather than merged into them: its grain is
+    (arm x event x time) and it carries the synthetic ``event = -1`` row that
+    both packages include in their convergence criterion, so a merge would
+    NaN-pad essentially every row of the estimate frame.
+
+    Columns are symmetric by construction -- ``pn_eic``, ``se_eic``,
+    ``eic_crit``, ``norm_pn_eic_first``, ``norm_pn_eic_last`` -- because both
+    packages compute them with the same formulas (``summarize_ic`` against
+    ``summarizeIC``). That symmetry is the whole reason the comparison is
+    possible; a test pins it.
+    """
+    out_dir = Path(out_dir)
+    n = int(pd.read_parquet(out_dir / "manifest.parquet")["n"].iloc[0])
+    parts: List[pd.DataFrame] = []
+    for name, src in (("python_eic.parquet", "pytmle"),
+                      ("concrete_eic.parquet", "concrete")):
+        f = out_dir / name
+        if not f.exists():
+            continue
+        d = pd.read_parquet(f)
+        d["source"] = d.get("source", src)
+        parts.append(d)
+    if not parts:
+        return pd.DataFrame()
+    out = pd.concat(parts, ignore_index=True)
+    out["n"] = n
+    return out
 
 
 def collect_study_c(out_dir: Path | str) -> pd.DataFrame:
@@ -196,11 +248,25 @@ def collect_study_c(out_dir: Path | str) -> pd.DataFrame:
         c = c.rename(columns={"Event": "event", "Time": "time",
                               "Pt Est": "est", "CI Low": "ci_lo", "CI Hi": "ci_hi",
                               "steps": "tmle_steps"})
-        c = c[c["Estimand"].astype(str).str.strip() == "Risk Diff"].copy()
-        c["estimand"] = "rd"
+        # Every estimand, not just the difference. concrete already computes a
+        # per-arm risk SE (`seEIC/sqrt(n)`, getOutput.R:170) and the previous
+        # filter threw it away, which is why there was no SE to compare against
+        # PyTMLE's matching risk rows.
+        est_map = {"Abs Risk": "risk", "Risk Diff": "rd", "Rel Risk": "rr"}
+        lab = c["Estimand"].astype(str).str.strip()
+        unknown = sorted(set(lab) - set(est_map))
+        if unknown:
+            raise ValueError(f"unrecognised concrete Estimand(s): {unknown}")
+        c["estimand"] = lab.map(est_map)
+        # arm label -> the same 1/0 the Python side uses; contrasts carry -1 so
+        # the value is never NaN (a NaN key is silently dropped by pivot_table)
+        iv = c["Intervention"].astype(str)
+        c["group"] = np.where(c["estimand"].eq("risk"),
+                              np.where(iv.str.contains("1"), 1.0, 0.0), -1.0)
         c["estimator"] = c["Estimator"].astype(str) + " (concrete)"
         c["tier"] = 1
         c["source"] = "concrete"
+        c["contended"] = True   # 8 concurrent Rscript shards; see bench_stage2
         parts.append(c.drop(columns=["Estimand", "Estimator", "Intervention"]))
 
     r = out_dir / "r_estimates.parquet"
@@ -232,8 +298,9 @@ def _shards(reps: int, n_jobs: int) -> List[tuple]:
     return [(int(a), int(b)) for a, b in zip(edges[:-1], edges[1:]) if b > a]
 
 
-def _rscript_parallel(script: str, out_dir: Path, stem: str, reps: int,
-                      extra: List[str], n_jobs: int, label: str) -> None:
+def _rscript_parallel(script: str, out_dir: Path, stem, reps: int,
+                      extra: List[str], n_jobs: int, label: str,
+                      env: Optional[Dict[str, str]] = None) -> None:
     """Run one R script over sharded replicate ranges, then combine.
 
     R is single-threaded and both scripts are a plain loop over replicates, so
@@ -241,7 +308,14 @@ def _rscript_parallel(script: str, out_dir: Path, stem: str, reps: int,
     directory -- which is why each shard writes its own file. Combining happens
     here rather than in R so that a shard that dies leaves the others' work
     intact and visible.
+
+    ``stem`` may be one name or several. A script that writes more than one
+    output per shard -- the concrete bridge now emits its estimates *and* its
+    influence-curve summary -- needs every stem combined; combining only the
+    first would leave the rest as `*_00.parquet` shards that never merge and
+    that a later run would happily read as stale.
     """
+    stems = [stem] if isinstance(stem, str) else list(stem)
     import subprocess
 
     from .concrete_bridge import RSCRIPT
@@ -252,7 +326,8 @@ def _rscript_parallel(script: str, out_dir: Path, stem: str, reps: int,
         args = [RSCRIPT, script, "--dir", str(out_dir), "--from", str(lo),
                 "--to", str(hi), "--shard", f"{k:02d}", *extra]
         procs.append((k, lo, hi, subprocess.Popen(
-            args, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)))
+            args, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True,
+            env=env)))
 
     failed = []
     for k, lo, hi, proc in procs:
@@ -260,18 +335,21 @@ def _rscript_parallel(script: str, out_dir: Path, stem: str, reps: int,
         if proc.returncode != 0:
             failed.append(f"  shard {k} (reps {lo}-{hi}): {err.strip()[-400:]}")
 
-    parts = sorted(out_dir.glob(f"{stem}_*.parquet"))
-    if not parts:
+    if not sorted(out_dir.glob(f"{stems[0]}_*.parquet")):
         raise RuntimeError(f"{label} produced no output:\n" + "\n".join(failed))
     if failed:
         print(f"  [{out_dir.name}] {label}: {len(failed)} of {len(ranges)} shards "
               f"failed; continuing with the rest", flush=True)
         for f in failed:
             print(f, flush=True)
-    pd.concat([pd.read_parquet(f) for f in parts],
-              ignore_index=True).to_parquet(out_dir / f"{stem}.parquet", index=False)
-    for f in parts:
-        f.unlink()
+    for st in stems:
+        parts = sorted(out_dir.glob(f"{st}_*.parquet"))
+        if not parts:
+            continue
+        pd.concat([pd.read_parquet(f) for f in parts],
+                  ignore_index=True).to_parquet(out_dir / f"{st}.parquet", index=False)
+        for f in parts:
+            f.unlink()
 
 
 def run_size(out_dir: Path | str, n: int, reps: int, config: str = CONFIG,
@@ -297,13 +375,15 @@ def run_size(out_dir: Path | str, n: int, reps: int, config: str = CONFIG,
         print(f"  [{out_dir.name}] concrete second stage, {n_jobs} shards ...",
               flush=True)
         _rscript_parallel("R/run_concrete_injected.R", out_dir,
-                          "concrete_estimates", reps,
+                          ("concrete_estimates", "concrete_eic"), reps,
                           ["--reps", str(reps), "--min-nuisance", str(min_nuisance)],
                           n_jobs, "run_concrete_injected.R")
 
     if _todo("estimators"):
-        res = run_python_estimators(out_dir, min_nuisance=min_nuisance,
-                                    n_jobs=n_jobs)
+        res, eic = run_python_estimators(out_dir, min_nuisance=min_nuisance,
+                                         n_jobs=n_jobs)
+        if eic is not None and len(eic):
+            eic.to_parquet(out_dir / "python_eic.parquet", index=False)
         res.to_parquet(out_dir / _MARKERS["estimators"], index=False)
         bad = int(res["estimator"].isna().sum())
         print(f"  [{out_dir.name}] PyTMLE estimators: {len(res)} rows"
@@ -335,8 +415,24 @@ def run_study(config_path: Path | str, output_dir: Path | str,
     return dirs
 
 
+def _pin_blas() -> None:
+    """One BLAS thread per worker; replicates are the unit of parallelism.
+
+    Study C was the only driver that did not do this, so its stages ran
+    `n_jobs` workers each with a 20-thread OpenBLAS on a 20-core machine. That
+    oversubscription is most of why its `stage2_seconds` is not comparable with
+    anything -- and it slowed the run down as well.
+    """
+    import os
+    for var in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS",
+                "NUMEXPR_NUM_THREADS"):
+        os.environ.setdefault(var, "1")
+
+
 def main(argv=None) -> int:
     import argparse
+
+    _pin_blas()
 
     ap = argparse.ArgumentParser(prog="sim.study_c", description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)

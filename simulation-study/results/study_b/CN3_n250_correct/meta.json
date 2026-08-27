@@ -1,0 +1,34 @@
+{
+  "cell": "CN3_n250_correct",
+  "n": 250,
+  "arm": "correct",
+  "reps": 1000,
+  "chunk": 25,
+  "n_bootstrap": 0,
+  "config": "base",
+  "target_times": [
+    0.477676,
+    3.11961,
+    8.608445
+  ],
+  "min_nuisance": 0.01,
+  "max_updates": 200,
+  "spec": {
+    "Q": "correct",
+    "pi": "correct",
+    "G": "correct"
+  },
+  "seed_key": "CN3_n250",
+  "params_override": {
+    "beta_c": [
+      0.6,
+      -0.6,
+      0.525
+    ],
+    "theta_c": 0.3,
+    "eta_c": 1.5,
+    "alpha_c": -3.0425
+  },
+  "axis": "censoring",
+  "level": "CN3"
+}

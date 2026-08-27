@@ -272,7 +272,22 @@ def build(
         ps1 = sm.ps_true.copy()
     else:
         # correct: the full design. wrong: the continuous confounder dropped.
-        cov = sm.X if spec.pi == "correct" else sm.X[:, :2]
+        #
+        # The noise block is appended to both. The propensity is the one nuisance
+        # that used to be pinned to the three true columns, which left the
+        # dimension axis stressing Q and G while treatment-weight stability -- the
+        # channel by which many columns actually bite -- was held immune. An
+        # unpenalised logistic on 3 + n_noise columns at n = 250 pushes fitted
+        # scores to the boundary, producing an *induced* positivity violation
+        # under a benign true propensity, which is the mechanism the dimension
+        # hypothesis is about. With n_noise = 0 the column_stack is a no-op and
+        # every earlier result reproduces bit-for-bit.
+        base_cov = sm.X if spec.pi == "correct" else sm.X[:, :2]
+        cov = (
+            np.column_stack([base_cov, sm.noise])
+            if sm.noise.shape[1]
+            else base_cov
+        )
         if spec.pi == "correct":
             ps1 = _fit_propensity_correct(sm, cov, q)
         else:

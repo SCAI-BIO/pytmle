@@ -1,0 +1,51 @@
+[sim.run] 24 cell(s), 12000 replicates -> results/study_a
+  C1_n250    config=threshold    n=250    reps=500   spec=QC-piC-GC n_jobs=8   est=tmle,gcomp,aipw,ipw
+  C2_n250    config=threshold    n=250    reps=500   spec=QC-piC-GW n_jobs=8   est=tmle,gcomp,aipw,ipw
+  C3_n250    config=threshold    n=250    reps=500   spec=QC-piW-GC n_jobs=8   est=tmle,gcomp,aipw,ipw
+  C4_n250    config=threshold    n=250    reps=500   spec=QC-piW-GW n_jobs=8   est=tmle,gcomp,aipw,ipw
+  C5_n250    config=threshold    n=250    reps=500   spec=QW-piC-GC n_jobs=8   est=tmle,gcomp,aipw,ipw
+  C6_n250    config=threshold    n=250    reps=500   spec=QW-piC-GW n_jobs=8   est=tmle,gcomp,aipw,ipw
+  C7_n250    config=threshold    n=250    reps=500   spec=QW-piW-GC n_jobs=8   est=tmle,gcomp,aipw,ipw
+  C8_n250    config=threshold    n=250    reps=500   spec=QW-piW-GW n_jobs=8   est=tmle,gcomp,aipw,ipw
+  C1_n500    config=threshold    n=500    reps=500   spec=QC-piC-GC n_jobs=8   est=tmle,gcomp,aipw,ipw
+  C2_n500    config=threshold    n=500    reps=500   spec=QC-piC-GW n_jobs=8   est=tmle,gcomp,aipw,ipw
+  C3_n500    config=threshold    n=500    reps=500   spec=QC-piW-GC n_jobs=8   est=tmle,gcomp,aipw,ipw
+  C4_n500    config=threshold    n=500    reps=500   spec=QC-piW-GW n_jobs=8   est=tmle,gcomp,aipw,ipw
+  C5_n500    config=threshold    n=500    reps=500   spec=QW-piC-GC n_jobs=8   est=tmle,gcomp,aipw,ipw
+  C6_n500    config=threshold    n=500    reps=500   spec=QW-piC-GW n_jobs=8   est=tmle,gcomp,aipw,ipw
+  C7_n500    config=threshold    n=500    reps=500   spec=QW-piW-GC n_jobs=8   est=tmle,gcomp,aipw,ipw
+  C8_n500    config=threshold    n=500    reps=500   spec=QW-piW-GW n_jobs=8   est=tmle,gcomp,aipw,ipw
+  C1_n1000   config=threshold    n=1000   reps=500   spec=QC-piC-GC n_jobs=6   est=tmle,gcomp,aipw,ipw
+  C2_n1000   config=threshold    n=1000   reps=500   spec=QC-piC-GW n_jobs=6   est=tmle,gcomp,aipw,ipw
+  C3_n1000   config=threshold    n=1000   reps=500   spec=QC-piW-GC n_jobs=6   est=tmle,gcomp,aipw,ipw
+  C4_n1000   config=threshold    n=1000   reps=500   spec=QC-piW-GW n_jobs=6   est=tmle,gcomp,aipw,ipw
+  C5_n1000   config=threshold    n=1000   reps=500   spec=QW-piC-GC n_jobs=6   est=tmle,gcomp,aipw,ipw
+  C6_n1000   config=threshold    n=1000   reps=500   spec=QW-piC-GW n_jobs=6   est=tmle,gcomp,aipw,ipw
+  C7_n1000   config=threshold    n=1000   reps=500   spec=QW-piW-GC n_jobs=6   est=tmle,gcomp,aipw,ipw
+  C8_n1000   config=threshold    n=1000   reps=500   spec=QW-piW-GW n_jobs=6   est=tmle,gcomp,aipw,ipw
+  [concrete] C1_n250: 148 replicates
+  [concrete] C2_n250: 145 replicates
+  [concrete] C3_n250: 149 replicates
+  [concrete] C4_n250: 138 replicates
+  [concrete] C5_n250: 145 replicates
+  [concrete] C6_n250: 142 replicates
+  [concrete] C7_n250: 148 replicates
+  [concrete] C8_n250: 142 replicates
+  [concrete] C1_n500: 150 replicates
+  [concrete] C2_n500: 146 replicates
+  [concrete] C3_n500: 150 replicates
+  [concrete] C4_n500: 148 replicates
+  [concrete] C5_n500: 149 replicates
+  [concrete] C6_n500: 142 replicates
+  [concrete] C7_n500: 150 replicates
+  [concrete] C8_n500: 140 replicates
+  [concrete] C1_n1000: 150 replicates
+  [concrete] C2_n1000: 148 replicates
+  [concrete] C3_n1000: 150 replicates
+  [concrete] C4_n1000: 149 replicates
+  [concrete] C5_n1000: 150 replicates
+  [concrete] C6_n1000: 141 replicates
+  [concrete] C7_n1000: 150 replicates
+  [concrete] C8_n1000: 145 replicates
+[sim.run] done
+[sim.run] report -> results/study_a/figures, results/study_a/tables

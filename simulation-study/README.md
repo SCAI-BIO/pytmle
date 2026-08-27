@@ -18,65 +18,263 @@ Rscript -e 'remotes::install_github("imbroglio-dc/concrete", upgrade = "never")'
 
 Verify the R side with `Rscript simulation-study/R/install_packages.R`.
 
-## Running
+## Reproducing the studies
 
-From this directory:
+Everything below is run **from the `simulation-study/` directory** with the
+`pytmle-sim` environment active:
 
 ```bash
-# the whole of Study A -- every cell, both implementations, figures and tables
+mamba activate pytmle-sim
+cd simulation-study
+python -m pytest tests -q          # all must pass before anything else
+```
+
+The three studies are independent of one another and can be run in any order. They
+share no state, so a failure in one does not invalidate the others.
+
+**Budget before you start.** These are the measured costs of the runs that produced
+the committed results, on a 20-core machine:
+
+| study | cells | replicates | CPU-hours | disk |
+|---|---|---|---|---|
+| validation gate | 4 scenarios + 8 rung-4 cells | 720 R + 3 200 Python | not separately measured | 401 MB |
+| **A** — double robustness | 24 | 12 000 + 3 600 concrete | **63** | 44 MB |
+| **B** — interval coverage | 53 | 36 600 | **789** | 69 MB |
+| **C** — cross-package | 3 sizes | 1 150 | ~10 | **~27 GB** |
+
+CPU-hours are measured, summed from the per-replicate `seconds` recorded in the
+shards. Divide by your worker count for wall time, but not below ~8 workers'
+worth — throughput ceilings there (see the `--n-jobs` note below), so 8 workers
+puts Study A at roughly 8 hours and Study B at **two to four days**.
+
+Study B is the long one, and two thirds of it is bootstrap: the seven cells with
+`n_bootstrap > 0` account for **518 of the 789** CPU-hours. Dropping them from the
+config leaves a ~270 CPU-hour run that still answers the coverage question on
+every stress axis — only the Wald-versus-bootstrap comparison is lost.
+
+Study C's disk figure is the exported per-replicate nuisance arrays, which are
+`(n × K)` doubles and dominate everything else. They scale as O(n²) — 5 MB per
+replicate at n = 500, 21 MB at n = 1000 — so the three sizes cost roughly 2.5 GB,
+11 GB and 13 GB. They are deletable once the benchmark has run (see below), and
+nothing downstream reads them after that.
+
+### The validation gate
+
+Nothing else is trusted until the harness reproduces Hage et al. (2025) — see
+[VALIDATION.md](VALIDATION.md) for the rungs and what each one proves.
+
+```bash
+Rscript R/install_packages.R
+Rscript R/truth_adjcuminc.R --out results/validation/truth_r.parquet \
+                            --times 0.25,0.5,1.0
+Rscript R/run_adjcuminc.R   --scenarios s1,s2,s3,s4 --n 1500 --reps 150 \
+                            --times 0.25,0.5,1.0 \
+                            --out results/validation/adjcuminc_est.parquet
+Rscript R/rung3_export.R    --scenarios s1,s2,s3,s4 --n 400 --reps 30 \
+                            --times 0.25,0.5,1.0 --out-dir results/validation/rung3
+python -m sim.run --config sim/configs/validation_rung4.yaml \
+                  --output-dir results/validation/rung4
+python -m sim.validate --dir results/validation
+```
+
+`sim.validate` reports whichever rungs have completed and **exits non-zero** if a
+completed rung fails its gate, so it works as a precondition in a script and not
+only as a report. It recomputes the closed-form truth by Monte Carlo on each call
+and takes a couple of minutes as a result; `--truth-mc` trades accuracy for speed
+when you only want to see the shape of the tables.
+
+Rung 4 prints a 2×2×2 — censoring informative or not, outcome model right or
+wrong, censoring model right or wrong. Read it down the `q_model` column:
+`bias_change` should be ~0 in every `correct` row, which is double robustness
+holding even against a misspecified censoring model, and can only be non-zero in
+the `wrong` rows, where that protection is switched off and `G` carries the
+estimate alone.
+
+### Study A — double robustness
+
+One command. `--report` writes the figures and tables at the end, and `concrete`
+is not a separate step: a cell with `concrete_reps > 0` runs concrete's second
+stage on the same seeds and the same injected nuisances straight after its own
+replicates.
+
+```bash
 python -m sim.run --config sim/configs/study_a_dr.yaml \
     --output-dir results/study_a --report
+```
 
-# pilot: two cells, 12 replicates each, with summary tables printed
+Outputs land in `results/study_a/figures/` and `results/study_a/tables/`. To
+redraw them from stored shards without recomputing anything:
+
+```bash
+python -m sim.report_study_a --output-dir results/study_a
+```
+
+Smoke test first if you like — two cells, 12 replicates, tables printed to stdout:
+
+```bash
 python -m sim.run --config sim/configs/study_a_dr.yaml \
     --output-dir results/pilot --cells C1_n250 C5_n250 --reps 12 --summarise
 ```
 
-Study C is a second entry point, because its nuisances are fitted in R and shared
-outward rather than built in Python:
+### Study B — where confidence intervals fail
+
+Three commands, because the run is long enough that you will want to inspect the
+tables and redraw the figures without touching the replicates.
 
 ```bash
-python -m sim.study_c --config sim/configs/study_c.yaml --output-dir results/study_c
+# 1. run  (the long one -- see the budget table above)
+python -m sim.study_b --config sim/configs/study_b.yaml \
+    --output-dir results/study_b --n-jobs 8
+
+# 2. tables
+python -m sim.study_b_report --config sim/configs/study_b.yaml \
+    --output-dir results/study_b
+
+# 3. figures
+python -m sim.plots_study_b --output-dir results/study_b
 ```
 
-That runs all four stages for every sample size — export the replicates, fit the
-nuisances once in R and run the R comparators, run `concrete`'s second stage on
-those same arrays, run PyTMLE's estimators on them — then writes the tables and
-three figures. Stages are skipped when their output exists, so an interrupted run
-resumes; the stages remain available as `export` / `run` subcommands for
-debugging.
+Steps 2 and 3 are cheap and read only stored shards, so re-run them freely.
+**Always re-run step 2 before step 3** — the figures read
+`study_b_performance.csv`, so plotting against a stale table silently omits
+whatever finished since it was written.
 
-**One command reproduces a study.** `concrete` is not a separate step: a cell
-with `concrete_reps > 0` runs concrete's second stage on the same seeds and the
-same injected nuisances straight after its own replicates, writing
-`concrete.parquet` beside the shards. `report.collect` loads the two together,
-so every downstream table and figure carries both implementations without any
-merge step. `--report` then writes the figures and tables into the output
-directory. Earlier versions needed three commands and a bespoke merge; that was
-the main obstacle to reproducing the study.
-
-Results are written as parquet shards under `<output-dir>/<cell>/`. Shards that
-already exist are skipped, so an interrupted run resumes rather than restarting;
-pass `--overwrite` to force recomputation. `--chunk` sets both the shard size and
-the resume granularity.
-
-Tests: `python -m pytest tests -q`.
-
-## Validation gate
-
-Before any study is trusted, the harness is validated against Hage et al. (2025)
-— see [VALIDATION.md](VALIDATION.md) for the four rungs and their results.
+Check progress at any time, including from another shell while the run is going:
 
 ```bash
-Rscript R/install_packages.R
-Rscript R/truth_adjcuminc.R --out results/validation/truth_r.parquet --times 0.25,0.5,1.0
-Rscript R/run_adjcuminc.R   --scenarios s1,s2,s3,s4 --n 1500 --reps 150 \
-                            --times 0.25,0.5,1.0 --out results/validation/adjcuminc_est.parquet
-Rscript R/rung3_export.R    --scenarios s1,s2,s3,s4 --n 400 --reps 30 \
-                            --times 0.25,0.5,1.0 --out-dir results/validation/rung3
-python -m sim.run --config sim/configs/validation_rung4.yaml --output-dir results/validation/rung4
-python -m sim.validate --dir results/validation      # reports and gates every completed rung
+python -m sim.study_b --config sim/configs/study_b.yaml \
+    --output-dir results/study_b --progress
 ```
+
+To run a subset — useful for reproducing one axis rather than all of them:
+
+```bash
+python -m sim.study_b --config sim/configs/study_b.yaml \
+    --output-dir results/study_b --only OV3_n250_correct B_OV3_n250_correct
+```
+
+### Study C — agreement with `concrete`, and a fair runtime comparison
+
+Study C is a separate entry point because its nuisances are fitted **in R** and
+shared outward rather than built in Python. Each sample size passes through four
+stages — export the replicates, fit the nuisances once in R and run the R
+comparators, run concrete's second stage on those same arrays, run PyTMLE's
+estimators on them — and the tables and figures are written at the end unless
+`--no-report` is passed.
+
+```bash
+# 1. the four stages, for every sample size in the config
+python -m sim.study_c --config sim/configs/study_c.yaml \
+    --output-dir results/study_c --n-jobs 8
+```
+
+**The runtime benchmark is deliberately not one of those stages.** It has to run
+alone on an idle machine, so it is a separate command and the ordering is not
+optional:
+
+```bash
+# 2. wait until the machine is idle, then benchmark -- nothing else running
+uptime                                   # 1-minute load should be near zero
+OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 \
+NUMEXPR_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 RAYON_NUM_THREADS=1 \
+python -m sim.bench_stage2 --study-dir results/study_c \
+    --config sim/configs/study_c.yaml --repeats 3
+
+# 3. re-run the report so the runtime table and figure are picked up
+python -m sim.study_c_report results/study_c/n500 results/study_c/n1000 \
+    results/study_c/n2000 --out-dir results/study_c
+```
+
+**The thread variables must be on the command line, not inside the script.**
+OpenBLAS reads its thread count when the library loads, which happens before any
+line of `sim.bench_stage2` runs, so setting them in Python is too late. The module
+checks with `threadpoolctl` and **refuses to start** if the parent process is not
+pinned — it will tell you exactly this — so a forgotten prefix costs a message,
+not a bad measurement.
+
+`sim.bench_stage2` also refuses to start when the 1-minute load average exceeds
+`--max-load` (default 2.0), pins the R child's environment the same way, adds
+`data.table::setDTthreads(1)` where no environment variable reaches, runs one fit
+at a time alternating which implementation goes first, and samples the child's
+live thread count with `psutil`. Afterwards it reports `wall/cpu` per row and
+drops anything outside [0.75, 1.35]: a single-threaded fit left alone spends its
+wall time computing, so the ratio sits at ~1.0. `--allow-busy` skips the gates and
+exists for smoke tests only; timings taken with it are not comparable.
+
+`--reps-per-n` (default 30) caps how many replicates are timed per sample size.
+It applies to `--config` too, so a study config's `reps` choose *which* sample
+sizes to benchmark, not how many replicates — timing all 1 150 of Study C's would
+take ~19 hours rather than ~2.
+
+Step 2 reads the per-replicate nuisance stubs written by step 1, so **do not
+delete `results/study_c/n*/rep*_*.parquet` until the benchmark has run.** Once it
+has, they are ~12 GB of reclaimable scratch:
+
+```bash
+rm results/study_c/n*/rep*_*.parquet     # after step 3
+```
+
+### Checking you got the right thing
+
+Each study writes a fixed set of deliverables. If any are missing, the run did not
+finish — check with `--progress` (Study B) or by re-running the command, which
+resumes rather than restarting.
+
+| study | tables | figures |
+|---|---|---|
+| A | `results/study_a/tables/study_a_{bias_rd, coverage_rd, detail_rd, diagnostics, runtimes}.{csv,md}` | 5, in `results/study_a/figures/` |
+| B | `results/study_b/study_b_{performance, conditions, breakpoints, type_i_error, attribution, failures}.csv` | 8, in `results/study_b/figures/` |
+| C | `results/study_c/study_c_{agreement, agreement_summary, performance, score, runtime}.{csv,md}` plus `study_c_{estimates,eic}.parquet` | one per agreement quantity, plus performance, score and runtime, in `results/study_c/figures/` |
+
+**Start with `study_c_agreement_summary.md`.** It is the same content as
+`study_c_agreement.csv` with the sample sizes turned into columns, one row per
+comparison and quantity, and it is the form that answers the question the study
+asks. Read across a row: a *numerical* difference shrinks with `n`, a
+*structural* one does not, and the `shrink_ratio` column (largest `n`'s
+discrepancy over smallest `n`'s) states which it is. Eight of the nine rows sit
+between 0.10 and 0.46; the one at 0.96 is the finding.
+
+Study C's `study_c_runtime.*` and its figure appear only after the benchmark has
+run and the report has been re-run (steps 2 and 3 above); everything else is
+written by step 1.
+
+**Seeding.** Every study is seeded and every replicate's seed is derived from the
+master seed together with the cell identity, so re-running one cell reproduces
+exactly the replicates it recomputes and a resumed run is indistinguishable from
+an uninterrupted one. The defaults are `20250301` for Studies A and B (`--seed`)
+and `20250901` for Study C. This fixes the *data*; it does not promise
+bit-identical floating point across different BLAS builds or CPU architectures,
+so expect agreement to many digits rather than all of them.
+
+The headline results these reproduce are written up in [STUDY_B.md](STUDY_B.md)
+and [FINDINGS.md](FINDINGS.md).
+
+### Resuming an interrupted run
+
+All three studies resume from disk, at different granularities:
+
+| study | unit of resume | how to force recomputation |
+|---|---|---|
+| A | one parquet shard (`--chunk` replicates) | `--overwrite` |
+| B | one parquet shard; the chunk size is **pinned in `meta.json`** | `--overwrite` |
+| C | one stage of one sample size | `--overwrite` |
+
+Nothing needs to be cleaned up first and no partial state is carried in memory —
+kill the process, restart the same command, and it continues from the last
+completed unit. Study B's chunk size is pinned per cell on purpose: re-chunking a
+cell that already has shards would re-index them and silently recompute
+replicates it already holds.
+
+Study A and B write per-cell directories, `results/<study>/<cell>/`, holding
+`shard_*.parquet`, `concrete.parquet` where concrete ran, and a `meta.json`
+recording the config, spec, target times and `min_nuisance` actually used.
+
+A Study B cell with `n_bootstrap > 0` also writes `draws_*.parquet` — the **raw
+bootstrap draws**, one row per (resample, estimand, event, tau, arm), with the
+per-draw convergence flags. Nothing in the report reads them; they are archived
+so that a new interval construction can be computed from stored output instead of
+re-running the fits, which for the seven bootstrap cells is ~519 CPU-hours. They
+are safe to delete if disk matters more than that option.
 
 ## Layout
 
@@ -96,9 +294,28 @@ sim/
   calibrate.py   the estimand-level guard;  validate.py  the AdjCuminc ladder
   config.py      YAML -> design cells
   run.py         CLI
+  study_b.py     Study B: stress axes, tagged bootstrap draws, resumable shards
+  bootstrap_ci.py     resampling that keeps the draws and the diagnostics
+  study_b_report.py   Study B tables;  plots_study_b.py  Study B figures
+  study_c.py     Study C: R-fitted nuisances shared outward, four stages
+  bench_stage2.py     single-threaded, serialised cross-package runtime bench
+  study_c_report.py   Study C tables;  plots_study_c.py  Study C figures
 R/               comparator bridges (concrete, riskRegression, AdjCuminc)
 tests/           harness unit tests
 ```
+
+### Documents
+
+| file | what it holds |
+|---|---|
+| [DGP.md](DGP.md) | the data-generating process and every lever, for Studies A and B |
+| [STUDY_A.md](STUDY_A.md) | Study A's results: double robustness, and what it does *not* buy |
+| [STUDY_B.md](STUDY_B.md) | Study B's results: where intervals fail, and what fixes them |
+| [STUDY_C.md](STUDY_C.md) | Study C's results: agreement with `concrete`, and the runtime cost |
+| [BOOTSTRAP_FAILURES.md](BOOTSTRAP_FAILURES.md) | the three bootstrap failure modes and how they are attributed |
+| [FINDINGS.md](FINDINGS.md) | defects in `pytmle` and traps the study could fall into again |
+| [VALIDATION.md](VALIDATION.md) | the validation ladder and its rungs |
+| [AIPW.md](AIPW.md) | the one-step estimator's construction |
 
 ## Design notes worth knowing before editing
 
@@ -116,13 +333,13 @@ observed times, so every nuisance is an `(n, K, ·)` array with `K ≈ n`. n = 2
 peaks around 1.25 GB per replicate; n = 20 000 does not fit. Large-*n* checks must
 use the propensity fitters alone, not the full build.
 
-**`min_nuisance` cannot be pinned — see [FINDINGS.md](FINDINGS.md).** The configs
-pass 0.01, but PyTMLE discards it after the first update step and reverts to its
-n-dependent default `5/(√n·log n)`. Any design that relies on controlling the
-truncation bound (Study B's n-ladder, Study D's `min_nuisance` sweep) has to
-account for that. It happens not to matter in the calibration runs done so far,
-where the nuisance denominators sit an order of magnitude above either value and
-truncation never binds.
+**`min_nuisance` is honoured — but raising it is not a remedy.** It used to be
+discarded after the first update step (FINDINGS 1); that is **fixed upstream in
+`c43539e`**, and Study B's sweep confirms the passed value now governs every step.
+What the sweep also shows is that turning the dial up makes positivity stress
+*worse*: at OV3, going from 0.01 to 0.10 costs 0.107 coverage at τ = 0.48 while
+SE/SD falls 1.21 → 0.68 and standardised bias rises — variance traded for bias,
+losing on both. See [STUDY_B.md](STUDY_B.md) §8.
 
 **Do not raise `--n-jobs` to the core count.** The second stage is elementwise
 arithmetic over `(n, K, ·)` arrays and is memory-bandwidth bound, so throughput
@@ -140,9 +357,19 @@ never pools into PyTMLE's Monte Carlo SE.
 
 **Runtime logging is second-stage only.** `stage2_seconds` times the targeted
 update alone — initial estimates are injected, so it excludes all nuisance
-fitting. That is the like-for-like number to compare PyTMLE against `concrete`;
-`report.runtimes()` aggregates it over replicates alongside `n`, the grid size and
-the iteration count, without which a wall-clock number is not interpretable.
+fitting. `report.runtimes()` aggregates it over replicates alongside `n`, the grid
+size and the iteration count, without which a wall-clock number is not
+interpretable.
+
+**But `stage2_seconds` from a study run is not a fair cross-package comparison.**
+The *definition* is like-for-like; the *conditions* are not. Study runs execute
+8-way parallel and neither side is single-threaded — numpy links a 20-thread
+OpenBLAS, while R carries its own pthreads OpenBLAS plus `data.table` defaulting
+to 10 cores — so the two are contended differently and threaded differently. Use
+`python -m sim.bench_stage2` for the comparison: it pins both sides to one thread
+before the interpreter starts, runs them serialised rather than concurrently,
+refuses to start on a busy machine, and verifies the thread count at runtime
+rather than assuming it.
 
 ## Calibration decisions
 

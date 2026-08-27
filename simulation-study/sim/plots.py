@@ -128,7 +128,8 @@ def _prep(summary: pd.DataFrame, estimand: str = "rd",
 
 
 def plot_bias_by_cell(summary: pd.DataFrame, out: Path, estimand: str = "rd",
-                      event: int = FOCAL_EVENT) -> Path:
+                      event: int = FOCAL_EVENT,
+                      estimators: Optional[Sequence[str]] = None) -> Path:
     """The headline: does each estimator fail exactly where theory says it should?
 
     Bias with 95 % Monte Carlo intervals, faceted by cause and sample size.
@@ -139,8 +140,20 @@ def plot_bias_by_cell(summary: pd.DataFrame, out: Path, estimand: str = "rd",
 
     A dot plot rather than bars: the quantity is signed, carries uncertainty, and
     zero is the reference.
+
+    `estimators` restricts and orders the series. Dropping `tmle (concrete)`
+    gives the figure that answers "does each estimator behave as theory
+    predicts"; keeping it also answers "is the port faithful", which is a
+    different question and costs a fifth mark in every row. The offsets are
+    derived from whatever is left, so the remaining dots respace rather than
+    leaving a gap where concrete used to be.
     """
     d = _prep(summary, estimand, event)
+    order = [e for e in (estimators if estimators is not None else ORDER)
+             if e in set(d["estimator"])]
+    if not order:
+        raise ValueError("no estimators left to plot")
+    d = d[d["estimator"].isin(order)]
     ns, cells = _ns(d), _cells(d)
     events = [event]
     agg = (d.groupby(["cellid", "n", "event", "estimator"])
@@ -152,7 +165,7 @@ def plot_bias_by_cell(summary: pd.DataFrame, out: Path, estimand: str = "rd",
     fig, axes = plt.subplots(len(events), len(ns), squeeze=False, sharey=True,
                              sharex=True, figsize=(4.1 * len(ns), 5.4),
                              facecolor=SURFACE)
-    off = np.linspace(-0.30, 0.30, len(ORDER))
+    off = np.linspace(-0.30, 0.30, len(order))
 
     for ri, ev in enumerate(events):
         for ci, n in enumerate(ns):
@@ -160,7 +173,7 @@ def plot_bias_by_cell(summary: pd.DataFrame, out: Path, estimand: str = "rd",
             _style(ax)
             sub = agg[(agg["n"] == n) & (agg["event"] == ev)]
             for yi, cell in enumerate(cells):
-                for k, est in enumerate(ORDER):
+                for k, est in enumerate(order):
                     r = sub[(sub.cellid == cell) & (sub.estimator == est)]
                     if r.empty:
                         continue
@@ -185,7 +198,7 @@ def plot_bias_by_cell(summary: pd.DataFrame, out: Path, estimand: str = "rd",
                 ax.set_xlabel("bias in risk difference", color=INK2, fontsize=9)
 
     axes[0][0].invert_yaxis()   # shared axis: invert exactly once, C1 at the top
-    present = [e for e in ORDER if e in set(agg.estimator)]
+    present = [e for e in order if e in set(agg.estimator)]
     handles = [plt.Line2D([], [], color=SERIES[e], marker=MARKER[e], ms=6.5, lw=2,
                           markeredgecolor=SURFACE, label=e) for e in present]
     handles.append(plt.Line2D([], [], marker="o", ms=6.5, lw=0,
@@ -199,7 +212,7 @@ def plot_bias_by_cell(summary: pd.DataFrame, out: Path, estimand: str = "rd",
     #         "cell label shows Q / \u03c0 / G  (\u2713 correct, \u2717 wrong).  "
     #         "Filled marks = theory predicts bias; hollow = predicts none.  "
     #         "PyTMLE and concrete overlapping = the port is faithful.")
-    fig.savefig(out, dpi=170, facecolor=SURFACE, bbox_inches="tight")
+    fig.savefig(out, dpi=400, facecolor=SURFACE, bbox_inches="tight")
     plt.close(fig)
     return out
 
@@ -253,7 +266,7 @@ def plot_coverage(summary: pd.DataFrame, out: Path, estimand: str = "rd",
     #         f"Wald interval coverage by specification cell (cause {event})",
     #         "Vertical line is the nominal 95 %. Double robustness buys consistency, "
     #         "not inference: under-coverage where a nuisance is wrong is expected.")
-    fig.savefig(out, dpi=170, facecolor=SURFACE, bbox_inches="tight")
+    fig.savefig(out, dpi=400, facecolor=SURFACE, bbox_inches="tight")
     plt.close(fig)
     return out
 
@@ -314,7 +327,7 @@ def plot_bias_vs_n(summary: pd.DataFrame, out: Path, estimand: str = "rd",
     #         "Log-log. Parallel to the dashed guide = shrinking like "
     #         r"$1/\sqrt{n}$; flat = a fixed asymptotic bias. "
     #         "Only the guide's slope is meaningful, not its height.")
-    fig.savefig(out, dpi=170, facecolor=SURFACE, bbox_inches="tight")
+    fig.savefig(out, dpi=400, facecolor=SURFACE, bbox_inches="tight")
     plt.close(fig)
     return out
 
@@ -378,7 +391,7 @@ def plot_runtime(runtimes: pd.DataFrame, out: Path) -> Path:
     #         "Median seconds per update, band = 5th\u201395th percentile. Initial "
     #         "estimates injected in both, so nuisance fitting is excluded. "
     #         "Not a matched-conditions benchmark \u2014 workers differ; read the shapes.")
-    fig.savefig(out, dpi=170, facecolor=SURFACE, bbox_inches="tight")
+    fig.savefig(out, dpi=400, facecolor=SURFACE, bbox_inches="tight")
     plt.close(fig)
     return out
 
@@ -387,8 +400,14 @@ def make_all(summary: pd.DataFrame, out_dir: Path, estimand: str = "rd",
              event: int = FOCAL_EVENT,
              runtimes: Optional[pd.DataFrame] = None) -> list[Path]:
     out_dir = Path(out_dir); out_dir.mkdir(parents=True, exist_ok=True)
+    # Two versions of the headline figure. With concrete it answers "is the port
+    # faithful"; without it, "does each estimator fail where theory says" -- and
+    # that reading is easier with four marks per row instead of five.
+    own = [e for e in ORDER if "concrete" not in e]
     figs = [
         plot_bias_by_cell(summary, out_dir / f"study_a_bias_{estimand}.png", estimand, event),
+        plot_bias_by_cell(summary, out_dir / f"study_a_bias_{estimand}_pytmle_only.png",
+                          estimand, event, estimators=own),
         plot_coverage(summary, out_dir / f"study_a_coverage_{estimand}.png", estimand, event),
         plot_bias_vs_n(summary, out_dir / f"study_a_bias_vs_n_{estimand}.png", estimand, event),
     ]

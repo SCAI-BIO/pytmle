@@ -1,0 +1,17 @@
+{
+  "cell": "R4_none_Qbad_Gbad",
+  "config": "rung4_cens_none",
+  "n": 500,
+  "reps": 400,
+  "spec": {
+    "Q": "wrong",
+    "pi": "correct",
+    "G": "wrong"
+  },
+  "target_times": [
+    0.5943,
+    1.2771,
+    2.6526
+  ],
+  "min_nuisance": 0.01
+}

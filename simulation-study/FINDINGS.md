@@ -4,6 +4,11 @@ Things discovered while building the harness that are worth keeping, either
 because they are defects in `pytmle` or because they are traps that a future
 version of this study could fall into again.
 
+The per-study results are written up separately — [STUDY_A.md](STUDY_A.md),
+[STUDY_B.md](STUDY_B.md), [STUDY_C.md](STUDY_C.md) — and reference these entries
+where a finding explains a result. This file is the diagnoses; those are the
+measurements.
+
 ---
 
 ## 1. `min_nuisance` is silently discarded after the first update step
@@ -582,3 +587,332 @@ fixed defect.
 
 Nothing in `pytmle` needs changing for this. It belongs in the write-up as a
 caveat on interval interpretation.
+
+---
+
+## 11. The bootstrap's `Converged` filter was selection on the outcome
+
+**Status:** confirmed at full scale, **fixed** — the filter has been commented out
+of `pytmle/bootstrap.py`.
+
+`bootstrap.py` dropped, per `(Event, Time)` target, every resample whose
+`Converged` flag was false, on the reasonable-sounding grounds that a resample
+which did not solve its score equation has not produced a valid estimate. Study B
+tagged draws instead of filtering them, which lets the same resamples be scored
+under both rules and the difference read off as a paired contrast.
+
+The filter's cost in coverage (cause-1 RD, `pct_convfilter` minus `pct_all`,
+n = 250, B = 100, paired at the replicate level):
+
+| cell | tau = 0.48 | tau = 3.12 | tau = 8.61 |
+|---|---|---|---|
+| base | +0.007 | 0.000 | 0.000 |
+| OV2 | -0.055 | -0.020 | -0.007 |
+| OV3 | **-0.188** | -0.101 | -0.067 |
+| OV4 | **-0.257** | -0.141 | -0.076 |
+
+Two things make it worse than it looks:
+
+1. **It bites hardest exactly where the bootstrap was needed.** The
+   non-convergence rate rises from 0.167 at the base condition to 0.745 / 0.920 /
+   **0.973** at OV2 / OV3 / OV4. At OV4 the surviving effective `B` is **6.1 of
+   100**, and *every* replicate falls below 40 — a 2.5 % quantile read off six
+   numbers.
+2. **It is selection on the outcome.** What survives is the resamples that solved
+   the score equation, which are systematically the narrow ones. So the filter
+   does not merely shrink `B`; it biases the surviving distribution toward
+   under-dispersion, which is the failure the bootstrap was being asked to fix.
+
+Raising `B` does not substitute. At the base condition, B = 500 against B = 100
+gives 0.910 / 0.910 / 0.970 against 0.912 / 0.928 / 0.928 — indistinguishable.
+
+**With the filter removed the bootstrap becomes the best available procedure under
+positivity stress**, lifting OV4 coverage from Wald's 0.733 to 0.960 at tau = 3.12.
+It remains the *wrong* choice under rare events, where the resamples contain even
+fewer events than the original sample and the bootstrap distribution degenerates
+(OV-style repair inverts: 0.746 -> 0.540 at RA2, tau = 0.48). See
+[STUDY_B.md](STUDY_B.md) §10 and [BOOTSTRAP_FAILURES.md](BOOTSTRAP_FAILURES.md).
+
+The two never-shipped diagnostic filters (`pct_dropmode1`, dropping resamples that
+exhausted the update budget, and `pct_strict`, dropping both) are worse still.
+**Non-convergence of a resample is not a reason to discard it.**
+
+---
+
+## 12. Correlating the noise covariates is inert, and the reason is structural
+
+**Status:** measured, sub-axis dropped from the design, lever retained and pinned
+by a test.
+
+Study B's first draft included a sub-axis that gave the `n_noise` nuisance
+covariates an AR(1) correlation with `w_cont` (`dgp.noise_rho`), on the assumption
+that correlated junk predictors are harder for a nuisance model than independent
+ones. Implemented and calibrated to `corr(w_cont, z_k) = 0.5^k`, verified to three
+decimal places with unit marginals and a bit-identical truth, it moved **nothing**
+— not coverage, not SE/SD, not the propensity's mean absolute error.
+
+The cause is not a bug and not a weak setting. Every nuisance here is an
+**unpenalised** MLE, and an unpenalised MLE is equivariant to invertible linear
+reparameterisation of its design: it depends on the *column span* of `X`, not on
+the basis. Rotating the noise block into correlation with `w_cont` leaves the span
+unchanged, so the fitted values are unchanged.
+
+The lever would bite only against a **penalised or selected** fitter, where the
+penalty is basis-dependent — ridge, lasso, or any screening step. That is the
+right home for it: the deferred high-dimensional study, which uses PyTMLE's own
+state learner and propensity super learner rather than injected parametric
+nuisances.
+
+`noise_rho` is kept in the DGP, defaulting to `0.0` and bit-identical to the old
+code path at that value, with the inertness asserted by a design-gate test so a
+future reader does not re-run the experiment.
+
+---
+
+## 13. PyTMLE and concrete solve the same estimating equation, to their own tolerance
+
+**Status:** measured across the full Study C run (500 / 500 / 150 replicates at
+n = 500 / 1000 / 2000), with byte-identical injected nuisances on both sides.
+
+FINDINGS 8 established that the two packages agree on the *targeting increment*
+but not the CIF level, and FINDINGS 9 that concrete 1.0.8 carries the
+`g.star.obs` defect. Neither says whether the two are solving the same estimating
+equation, because a point estimate cannot distinguish "same algorithm" from "same
+answer". Extracting the post-update `SummEIC` from both settles it.
+
+Merging on `(rep, time, event, arm)` matches **9000 of 9000** rows at each of the
+two large sizes, and:
+
+| quantity | n = 500 | n = 1000 | n = 2000 |
+|---|---|---|---|
+| median abs. diff in `PnEIC` | 2.2e-05 | 3.0e-06 | 2.0e-06 |
+| max abs. diff in `PnEIC` | 3.0e-03 | 1.1e-03 | 4.8e-04 |
+| mean abs. log ratio of `seEIC` | 6.6e-04 | 3.3e-04 | 1.6e-04 |
+
+Two facts make this conclusive rather than merely close:
+
+1. **Both drive `|PnEIC|` below their own `seEIC/(sqrt(n) log n)` on 100 % of
+   targets**, at every sample size.
+2. **No row has a cross-package `PnEIC` difference exceeding that threshold.**
+   The residual gap is not a discrepancy; it is the width of the tolerance band
+   both are aiming inside, and it shrinks with `n` exactly as the band does.
+
+So the score comparison is not "do the two agree" -- they cannot agree to better
+than the stopping rule permits -- but "does each solve its own criterion, and is
+the gap bounded by that criterion". Both hold.
+
+The `seEIC` agreement at ~1e-4 is the stronger practical result: the FINDINGS 9
+defect moves `Psi` through the targeted update but does **not** touch the
+influence curve, so the standard errors agree three orders of magnitude better
+than the point estimates do. `TIERS` now pins `tol_se = 2e-3` with
+`expect_se = "agree"` for this pair, separately from the point estimate's
+`expect = "diverge"`.
+
+### A step-counting convention that would have corrupted the runtime comparison
+
+concrete reports **exactly one step more** than PyTMLE on 487 of 500 replicates
+at n = 500 (mean difference 1.014; medians 12 against 11), while both converge on
+100 % of replicates. One side counts the initial evaluation as a step. At a median
+of ~11 steps this inflates concrete's denominator by ~8 %, so `seconds per
+accepted step` would have handed it a free 8 % speed-up in a benchmark whose whole
+purpose is fairness.
+
+It is documented in `summarise_bench` rather than corrected, because the offset is
+not uniform (13 of 500 replicates differ) and subtracting one would be an
+inference about concrete's internals. The consequence: **per-fit seconds is the
+cross-package headline**; per-step and per-cell remain valid for comparing one
+implementation across `n`.
+
+---
+
+## 14. PyTMLE's IPW standard error is conservative: it treats the weights as known
+
+**Status:** measured and **explained**. A real conservatism in `sim/estimators.py`
+`run_ipw`, confirmed against the empirical sampling distribution.
+
+Study C compares standard errors as well as point estimates, and every tier-2
+comparison tightens with `n` -- except one:
+
+| pair | quantity | n = 500 | n = 1000 | n = 2000 |
+|---|---|---|---|---|
+| `ate:IPTW` vs `ipw` | point estimate | 1.6e-05 | 7.0e-06 | 3.0e-06 |
+| `ate:IPTW` vs `ipw` | **standard error** | **0.134** | **0.130** | **0.128** |
+| `ate:AIPTW` vs `aipw` | standard error | 6.0e-03 | 3.8e-03 | 2.4e-03 |
+
+The point estimates agree to five decimal places. The standard errors differ by
+~13 % on the log scale and the gap is flat in `n`, so it is structural. For
+contrast the AIPTW pair, on the same fitted models, shrinks as O(1/n).
+
+**Which one is right.** The empirical sampling distribution decides it, and the
+answer is not the intuitive one -- `riskRegression`'s SE is the **smaller** of the
+two (`mean log(ate:IPTW / ipw) = -0.1315`, i.e. 0.877x), and it is the calibrated
+one:
+
+| | SE / empirical SD | coverage |
+|---|---|---|
+| PyTMLE `ipw` | **1.02 - 1.21** | 0.956 - 0.986 |
+| `ate:IPTW` | 0.93 - 1.01 | 0.934 - 0.954 |
+
+PyTMLE's IPW interval is too wide and over-covers, by up to 0.036 above nominal.
+
+**The cause.** `run_ipw` builds the influence function as `w - est` with the
+weights `1{A=a} / (pi_a(W) G(t- | a, W))` treated as **known**. `riskRegression`
+propagates the estimation of `pi` and `G` into its influence function. This is the
+textbook result: an IPW estimator using *estimated* propensities has a **smaller**
+asymptotic variance than the same estimator with the true ones, because the
+estimated weights absorb some of the sampling variation in the covariate
+distribution. Treating them as known therefore overstates the variance, which is
+exactly what is observed.
+
+The `tau` dependence confirms the mechanism. The overstatement grows with the
+evaluation time -- SE/SD 1.03 at `tau = 1.61` against 1.16-1.21 at `tau = 5.42` --
+because `G` is also treated as known and matters more the further out the
+evaluation goes.
+
+**Consequences.** `ipw` is a comparator in this harness rather than a recommended
+estimator, and a conservative interval is the benign direction to err in, so
+nothing here is unsafe. But its coverage should be read as "over-covers because
+the SE is wrong", not as good calibration, and it is not a fair yardstick for
+`tmle` or `aipw` on interval width. Recorded in `TIERS` as
+`expect_se = "diverge"` with `tol_se = 1e-2` so the gate stays live.
+
+The fix, if wanted, is to subtract the projection of the influence function onto
+the score of the propensity (and censoring) model -- the same correction that
+makes `aipw` agree with `ate:AIPTW` to 2.4e-03.
+
+---
+
+## 15. PyTMLE's second stage really is 3-4x slower than concrete's, and it is all per-cell cost
+
+**Status:** measured under verified single-thread, serialised, idle conditions.
+This **refutes** the expectation the benchmark was built on. Corrected once on
+2026-08-27 -- see the note at the end, which retracts a grid-size explanation
+that turned out to be an instrumentation artefact.
+
+Study C's own `stage2_seconds` reported concrete at ~1.08 s against PyTMLE's
+~4.10 s at n = 500, and the working hypothesis was that most of that ~3.8x gap was
+an artefact of unequal threading and contention: numpy links a 20-thread OpenBLAS,
+R links its own pthreads OpenBLAS with `data.table` claiming 10 of 20 cores, and
+every Study C stage runs 8-way parallel.
+
+`sim.bench_stage2` removes both. Verified, not assumed: `threadpoolctl` reports
+`libscipy_openblas` at `num_threads = 1`; `data.table::setDTthreads(1)` covers
+what no environment variable reaches; the orchestrator samples the R child's live
+thread count with `psutil`; fits run one at a time, alternating which
+implementation goes first so a warm page cache cannot favour one systematically
+(`ran_first` is exactly 0.5 for every cell). **All 180 rows pass the fairness
+band**, with `wall/cpu` median 1.002 and maximum 1.027 -- every fit spent its wall
+time computing on one core, undisturbed.
+
+The hypothesis was wrong. Pinning halves *both* implementations' times, so
+contention was costing them about equally:
+
+| n | concrete | PyTMLE | ratio | grid (both) | per step x cell |
+|---|---|---|---|---|---|
+| 500 | 0.624 s | 2.038 s | **3.26x** | 352 | 301 -> 1026 ns = **3.41x** |
+| 1000 | 2.278 s | 7.936 s | **3.48x** | 706 | 265 -> 1011 ns = **3.82x** |
+| 2000 | 8.639 s | 37.778 s | **4.37x** | 1412 | 239 -> 1113 ns = **4.65x** |
+
+**The two implementations run on the same grid.** PyTMLE truncates the injected
+grid at `max(target_times)` in `estimates.py:237-247`, and concrete builds
+`{0} u {observed times <= max(tau)} u {target times}` -- the same set. Checked
+directly: the working grids are **identical on 100 % of replicates** at all three
+sample sizes. So there is no grid component to the gap; **all of it is per-cell
+cost**.
+
+Two things the normalisation shows that raw seconds do not:
+
+1. **The two scale in opposite directions.** concrete's cost per (step x grid
+   cell) *falls* with `n` -- 301 -> 265 -> 239 ns -- while PyTMLE's is flat to
+   rising, 1026 -> 1011 -> 1113 ns. That is why the headline ratio widens with
+   `n`.
+2. **Per-step figures flatter concrete by ~8 %.** The step counts are on
+   different conventions (FINDINGS 13): concrete reports one more at every size
+   (12.5 / 12.5 / 13 against 11.5 / 11.5 / 12). `median_s_per_step` is therefore
+   *not* a like-for-like cross-package number; per-fit seconds is.
+
+**Where the per-cell cost goes.** Profiling and A/B patching (2026-08-27) located
+four avoidable costs in the update loop, all Python-level work inside `O(n * K)`
+array operations:
+
+| change | file | effect |
+|---|---|---|
+| vectorise the per-subject loop in `get_haz_ls` | `get_influence_curve.py:216` | ~1.15x |
+| vectorise the `nlds` scatter (was `O(n)` Python with an `O(K)` scan each) | `get_influence_curve.py:136` | with below, ~1.05x |
+| build the IC frame from arrays, not ~200k dicts | `get_influence_curve.py:169` | " |
+| hoist `f_j_t` out of the `l` loop -- it depends only on `j` | `tmle_update.py:103` | ~1.10x |
+
+Together: **1.30x at n = 500 (8 replicates), 1.15x at n = 1000 (4 replicates)**,
+with step counts identical and estimates and standard errors **bit-identical**
+(max deviation 0.00e+00). The gain shrinks with `n` because these are `O(n)`
+Python overheads inside `O(n * K)` array work. They are upstream changes to
+`pytmle` and are specified but not applied here.
+
+**What this does and does not say.** It is a second-stage-only comparison on
+byte-identical injected nuisances, so it isolates the targeted update and excludes
+all nuisance fitting -- which is the part a user of either package would usually
+spend most of their time in. It is also single-threaded by construction, so it
+says nothing about how either scales with cores.
+
+### Correction (2026-08-27)
+
+The first version of this entry attributed part of the gap to grid size, claiming
+PyTMLE evaluated on all `n` distinct observed times against concrete's ~70 %, and
+decomposed the 3.26x at n = 500 into "1.42x grid x 2.37x per-cell". **That was an
+instrumentation artefact and is retracted.** `sim/estimators.py` and
+`sim/bench_stage2.py` recorded `len(initial_estimates[...].times)` -- the *input*
+grid -- while concrete reported its *working* grid, so the two were divided by
+different denominators and PyTMLE's per-cell cost came out ~30 % too low. Both now
+record the working grid, `n_times_input` carries the injected size separately, and
+the stored Study C outputs were backfilled from `python_eic.parquet`, which had
+recorded the working grid correctly all along.
+
+---
+
+## 16. The reverse-percentile interval is free, and it reverses the recommendation
+
+**Status:** measured, derived from stored output at zero compute cost.
+
+The reverse-percentile (`basic`) bootstrap interval is a deterministic reflection
+of the percentile interval about the point estimate:
+
+    basic = (2 * est - pct_hi,  2 * est - pct_lo)
+
+It therefore needs **no resamples** -- only the stored percentile bounds and the
+point estimate, both of which the study already writes. Verified against shards
+carrying both constructions: exact to **0.0** over 3391 rows. `_derive_basic` in
+`study_b_report.py` now adds a `basic_*` row for every stored `pct_*`, so all
+four filters gain their reverse-percentile counterpart retroactively.
+
+This matters twice over.
+
+**As a method fact.** The two intervals have **identical width** by construction,
+so any difference in coverage is purely a difference in *location*. That makes the
+pair a clean instrument: it reads off whether the bootstrap distribution sits
+off-centre from the point estimate, with the width dimension held exactly fixed.
+
+**As a result**, it is a third axis-dependent reversal, and the sharpest:
+
+| cell | tau | `pct_all` | `basic_all` | width (both) |
+|---|---|---|---|---|
+| B_OV3 | 3.12 | **0.947** | 0.807 | 0.250 |
+| B_OV4 | 3.12 | **0.960** | 0.613 | 0.344 |
+| B_OV4 | 8.61 | **0.960** | 0.640 | 0.420 |
+| B_RA2 | 0.48 | 0.540 | **0.727** | 0.029 |
+| B_RA3 | 0.48 | 0.248 | **0.450** | 0.015 |
+
+Under positivity stress the reflection points the wrong way and costs up to 0.347
+coverage for no saving in width. Under rare events at early tau it corrects the
+one-sided miss and nearly doubles coverage, again at the same width. The bootstrap
+distribution is offset in opposite directions on the two axes, so no single
+construction serves both.
+
+**A methodological note on cost.** The scoped re-run to obtain this was estimated
+at ~519 CPU-hours across seven bootstrap cells. Checking the algebra first
+reduced it to zero for `basic`, and the remaining question -- `bca`, whose
+bias-correction needs the draw distribution and whose acceleration needs the
+influence curve -- was dropped as not worth ~90 CPU-hours once `basic` had
+answered the same question. Two changes make it cheap in future: every
+construction is now emitted under every filter, and the **raw draws are archived**
+beside each shard, so a new interval construction never requires re-running the
+fits again.
