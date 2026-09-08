@@ -1,0 +1,105 @@
+# BCa pilot: what resample count does a BCa default need to be safe?
+#
+#   python -m sim.study_b --config sim/configs/bca_pilot.yaml \
+#       --output-dir results/bca_pilot --n-jobs 15
+#   python -m sim.study_b_report --config sim/configs/bca_pilot.yaml \
+#       --output-dir results/bca_pilot
+#
+# Motivation. PyTMLE's shipped bootstrap is being changed from percentile to
+# BCa. BCa adds two corrections to the percentile interval -- a median-bias
+# correction `z0` and an acceleration `a` -- and adjusts the *quantile levels*
+# rather than the draws. That makes it sensitive to the resample count in a way
+# the percentile interval is not, because the adjusted levels can fall far into
+# the tails where few draws resolve them.
+#
+# A single-replicate probe at B = 40 against B = 200 showed the effect is large
+# and is driven by the *estimation error* in `z0`, not by a real median bias:
+#
+#     B     median |z0|   frac range      median CI width
+#     40    0.570         0.200 - 0.825   0.0815
+#     200   0.158         0.355 - 0.605   0.1423
+#
+# At B = 40 the intervals are little more than half as wide as at B = 200, which
+# is an under-coverage risk; by B = 200 `frac` has settled around 0.5, as a
+# median-unbiased bootstrap should. PyTMLE's current default is B = 100 --
+# between the two. This pilot puts numbers on that.
+#
+# Design. Each cell runs at B = 500 and reports intervals at B = 100, 200 and 500
+# by truncating the stored draws to the first `b` resamples. Resamples are
+# i.i.d., so the first `b` are a valid `b`-bootstrap nested inside the larger
+# one. The B ladder is therefore *paired to the draw*: same data, same fit, same
+# resamples, differing only in how many are used -- and it costs one run rather
+# than three.
+#
+# Cells, each answering a different question:
+#
+#   BCA_base   does BCa hurt where nothing is wrong? A default must not. Oracle
+#              nuisances at the base condition: the one place where every
+#              procedure in Study B sits at nominal, so any deviation is BCa's.
+#   BCA_OV3    the regime where the bootstrap is actually needed. Study B has
+#              Wald at 0.900 and the unfiltered percentile at 0.947 here, so BCa
+#              has a real incumbent to beat.
+#   BCA_RA3    the regime where BCa's bias correction is *undefined* -- every
+#              draw on one side of the point estimate, so `z0 = +-inf` and the
+#              implementation falls back to percentile. Measured at 87 % of
+#              replicates under the old convergence filter; this is the test of
+#              whether that survives the filter's removal.
+#
+# Seeds are pinned to the corresponding Study B cells so the pilot's replicates
+# are the *same datasets*, making every comparison against the existing results
+# paired rather than merely comparable.
+
+name: bca_pilot
+description: >
+  Coverage, width, z0 and fallback rate of the BCa bootstrap as a function of
+  the resample count, against the percentile and reverse-percentile intervals on
+  identical draws.
+
+defaults:
+  config: base
+  min_nuisance: 0.01
+  max_updates: 200
+  # Pinned, not derived from quantiles: the rare-event cell shifts the observed
+  # event-time distribution, and scoring it at a different tau would confound
+  # rarity with the evaluation time. These are Study B's tau, so the pilot's
+  # numbers sit directly beside the existing ones.
+  target_times: [0.477676, 3.11961, 8.608445]
+  b_grid: [100, 200, 500]
+
+wald_cells: []
+
+boot_cells:
+  # Base condition, oracle nuisances. 100 replicates: this is the cheapest cell
+  # and the one where the effect to detect is smallest, so it gets the most.
+  - name: BCA_base
+    n: 250
+    arm: oracle
+    reps: 100
+    n_bootstrap: 500
+    seed_key: BS12_n250_oracle
+    axis: bca_B
+    level: base
+
+  # Overlap stress. gamma x 4 -- Study B's OV3.
+  - name: BCA_OV3
+    n: 250
+    arm: correct
+    reps: 50
+    n_bootstrap: 500
+    seed_key: OV3_n250_correct
+    axis: bca_B
+    level: OV3
+    params_override:
+      gamma: [2.0, -1.6, 1.2]
+
+  # Rare events. alpha lowered on cause 1 only -- Study B's RA3.
+  - name: BCA_RA3
+    n: 250
+    arm: correct
+    reps: 50
+    n_bootstrap: 500
+    seed_key: RA3_n250_correct
+    axis: bca_B
+    level: RA3
+    params_override:
+      alpha: [-5.0, -2.6]

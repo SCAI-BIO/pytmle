@@ -81,7 +81,7 @@ FILTERS = [("pct_all", False, False), ("pct_convfilter", False, True),
 _CELL_KEYS = {
     "name", "n", "arm", "reps", "config", "n_bootstrap", "min_nuisance",
     "max_updates", "tau_quantiles", "target_times", "params_override",
-    "q_arm", "pi_arm", "g_arm", "seed_key", "axis", "level",
+    "q_arm", "pi_arm", "g_arm", "seed_key", "axis", "level", "b_grid",
 }
 
 #: DGPParams fields that must be numpy arrays; YAML gives lists.
@@ -170,6 +170,19 @@ class BCell:
     #: parsing cell names.
     axis: str = "base"
     level: str = "base"
+
+    #: Resample counts to *also* report intervals at, by truncating the stored
+    #: draws to the first `b` resamples.
+    #:
+    #: Resamples are i.i.d., so the first `b` of `n_bootstrap` are a valid `b`
+    #: bootstrap. That makes the B-ladder a paired contrast on identical data,
+    #: identical fits and nested draw sets -- and costs one run rather than
+    #: three, since a B = 500 cell already contains its own B = 100 and B = 200.
+    #:
+    #: Emitted as `{construction}_all@B{b}`, unfiltered only: the per-target
+    #: `Converged` filter has been removed from `pytmle/bootstrap.py`, and mixing
+    #: the filter axis into the B axis would confound the two.
+    b_grid: Optional[Sequence[int]] = None
 
     def spec(self) -> Spec:
         return Spec(Q=self.q_arm or self.arm,
@@ -413,6 +426,22 @@ def _one_rep_b(args) -> tuple:
                         _emit(f"{name}_{suffix}", typ, ev, tt, grp, point,
                               *iv[kind], eff_b=eff)
 
+                # The B ladder, on the unfiltered draws. `boot` is the resample
+                # index, so `boot < b` takes the first `b` of them -- a valid
+                # `b`-resample bootstrap, nested inside the larger one, which
+                # makes the comparison across B paired to the draw.
+                for b in (cell.b_grid or []):
+                    sub = g[g["boot"] < int(b)]
+                    if sub.empty:
+                        continue
+                    ivb = intervals_from_draws(sub["Pt Est"].to_numpy(), point,
+                                               ALPHA, ics.get(key))
+                    eb = int(sub["boot"].nunique())
+                    for kind in ("percentile", "basic", "bca"):
+                        nm = ("pct" if kind == "percentile" else kind)
+                        _emit(f"{nm}_all@B{int(b)}", typ, ev, tt, grp, point,
+                              *ivb[kind], eff_b=eb)
+
     out = pd.DataFrame(rows)
     for k, v in diag.items():
         out[k] = v
@@ -500,6 +529,7 @@ def run_cell_b(cell: BCell, output_dir: Path, master_seed: int = 20250301,
          "n_bootstrap": cell.n_bootstrap, "config": cell.config,
          "target_times": taus, "min_nuisance": cell.min_nuisance,
          "max_updates": cell.max_updates,
+         "b_grid": list(cell.b_grid) if cell.b_grid else None,
          "spec": cell.spec().__dict__,
          "seed_key": cell.seed_key or cell.name,
          "params_override": {k: (v.tolist() if hasattr(v, "tolist") else v)
@@ -634,7 +664,8 @@ def run_study_b(config_path: Path | str, output_dir: Path | str,
                 params_override=_coerce_override(c.get("params_override", {})),
                 q_arm=c.get("q_arm"), pi_arm=c.get("pi_arm"), g_arm=c.get("g_arm"),
                 seed_key=c.get("seed_key"),
-                axis=c.get("axis", "base"), level=c.get("level", "base")))
+                axis=c.get("axis", "base"), level=c.get("level", "base"),
+                b_grid=pick("b_grid", None)))
     if only:
         cells = [c for c in cells if c.name in set(only)]
 

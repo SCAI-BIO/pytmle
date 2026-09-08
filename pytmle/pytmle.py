@@ -21,7 +21,7 @@ from .plotting import (
     plot_nuisance_weights,
     plot_propensity_score_calibration,
 )
-from .bootstrap import bootstrap_tmle_loop
+from .bootstrap import bootstrap_draws, bootstrap_intervals
 
 
 class PyTMLE:
@@ -107,6 +107,7 @@ class PyTMLE:
         self.key_0 = key_0
         self.verbose = verbose
         self._bootstrap_results = None
+        self._bootstrap_draws = None
         self._fitted = False
         self.has_converged = False
         self.step_num = 0
@@ -365,8 +366,16 @@ class PyTMLE:
             ), "Initial estimates have to be available before calling _update_estimates()."
         if self.verbose >= 2:
             print("Starting TMLE update loop...")
+        # The draws are collected *before* the targeted update and turned into
+        # intervals *after* it. Both halves of that are required:
+        #   - before, because `tmle_update` mutates the initial estimates in
+        #     place, so resampling afterwards would draw from targeted values;
+        #   - after, because BCa's bias correction needs the original point
+        #     estimate and its acceleration needs the influence curve, and
+        #     neither exists until the update has run.
+        boot_draws = None
         if bootstrap:
-            self._bootstrap_results = bootstrap_tmle_loop(
+            boot_draws = bootstrap_draws(
                 self._initial_estimates,
                 event_times=self._event_times,
                 event_indicator=self._event_indicator,
@@ -401,6 +410,16 @@ class PyTMLE:
             verbose=self.verbose,
             mlflow_logging=self.mlflow_logging,
         )  # type: ignore
+
+        if boot_draws is not None:
+            self._bootstrap_draws = boot_draws
+            self._bootstrap_results = bootstrap_intervals(
+                boot_draws,
+                self._updated_estimates,
+                key_1=self.key_1,
+                key_0=self.key_0,
+                method="bca",
+            )
 
     def fit(
         self,

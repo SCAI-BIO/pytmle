@@ -278,4 +278,19 @@ def ate_diff(
     pred_diffs["E_value CI (bootstrap)"] = np.nan
     pred_diffs["E_value CI limit (bootstrap)"] = np.nan
 
+    # `bootstrap_results` was accepted here and never used, so the risk
+    # difference -- usually the estimand of interest -- silently received only
+    # Wald intervals even when a bootstrap had been run. Merged as in
+    # `ate_ratio`; no bootstrap E-values, since E-values are not defined on this
+    # scale.
+    if bootstrap_results is not None:
+        pred_diffs = pred_diffs.merge(
+            bootstrap_results[bootstrap_results["type"] == "rd"].drop(
+                columns=["Group", "type"]
+            ),
+            on=["Event", "Time"],
+            suffixes=("", "_bootstrap"),
+            how="left",
+        )
+
     return pred_diffs

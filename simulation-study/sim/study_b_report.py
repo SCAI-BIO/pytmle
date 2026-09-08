@@ -311,7 +311,15 @@ def performance_b(d: pd.DataFrame, config: str = "base",
             })
     out = pd.DataFrame(rows)
     if len(out):
-        out["procedure"] = pd.Categorical(out["procedure"], PROC_ORDER, ordered=True)
+        # Any procedure missing from `PROC_ORDER` would be silently coerced to
+        # NaN here -- the categories are a whitelist, not a sort key. That is how
+        # the `{construction}_all@B{b}` rows of the BCa pilot were computed,
+        # written to the shards, and then erased from every table: 3240 rows per
+        # shard, present on disk, absent from the report. Unknown labels are
+        # appended instead, so a new procedure sorts last rather than vanishing.
+        seen = [str(p) for p in pd.unique(out["procedure"].dropna())]
+        cats = PROC_ORDER + sorted(p for p in seen if p not in PROC_ORDER)
+        out["procedure"] = pd.Categorical(out["procedure"], cats, ordered=True)
         out = out.sort_values(["cell", "type", "event", "time", "procedure"])
     return out.reset_index(drop=True)
 
