@@ -573,7 +573,8 @@ def run_cell_b(cell: BCell, output_dir: Path, master_seed: int = 20250301,
 
 
 def progress_b(config_path: Path | str, output_dir: Path | str,
-               only: Optional[Sequence[str]] = None) -> pd.DataFrame:
+               only: Optional[Sequence[str]] = None, n_jobs: int = 8,
+               chunk_wald: int = 25) -> pd.DataFrame:
     """Per-cell completion, for checking where an interrupted run got to.
 
     `only` takes the same cell names as `run_study_b`, so `--progress --only X`
@@ -603,8 +604,14 @@ def progress_b(config_path: Path | str, output_dir: Path | str,
                 if d.exists() and any(d.glob("shard_*.parquet")):
                     step = _LEGACY_CHUNK
                 else:
+                    # A cell that has not started yet will be chunked by
+                    # `_chunk_for`, which sizes a bootstrap cell to the worker
+                    # count. Guessing a different number here does not change
+                    # what the run does -- it only misreports how much of it is
+                    # left, which over a multi-day run is the number being read.
                     B = c.get("n_bootstrap", 0)
-                    step = 2 if B >= 500 else (5 if B else 25)
+                    step = (max(1, min(n_jobs, int(c["reps"]))) if B
+                            else chunk_wald)
             total = -(-int(c["reps"]) // int(step))
             got = sum(1 for s in d.glob("shard_*.parquet") if _shard_is_intact(s)) \
                 if d.exists() else 0
@@ -686,7 +693,8 @@ def main(argv=None) -> int:
                          "interrupted run to see where it got to")
     a = ap.parse_args(argv)
     if a.progress:
-        df = progress_b(a.config, a.output_dir, only=a.only)
+        df = progress_b(a.config, a.output_dir, only=a.only,
+                        n_jobs=a.n_jobs)
         done = int((df["pct"] >= 100).sum())
         print(df.to_string(index=False))
         print(f"\n{done}/{len(df)} cells complete; "
