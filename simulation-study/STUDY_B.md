@@ -337,10 +337,18 @@ filtered bootstrap; removing the filter did.
   draws as `pct_*` and under all four filters. The cells reported here were run
   before that, so they carry no `bc_*` rows: unlike `basic`, the bias correction
   needs the draw distribution and cannot be recovered from stored bounds, and the
-  draws of those cells were not archived. Re-running the seven bootstrap cells
-  costs ~525 CPU-hours (~26 h at 20 workers) and is the only way to obtain the
+  draws of those cells were not archived. Re-running the six bootstrap cells
+  costs ~400 CPU-hours and is the only way to obtain the
   percentile-against-bias-corrected comparison. Until then the two-marker
   construction figures (`study_b_*_bc.png`) are not produced.
+- **The resample-count question was dropped from the design.** `B_BASEb500`, the
+  B = 500 cell that tested whether 100 draws resolve a 2.5 % quantile, is no
+  longer in the config, and no cell sets a `b_grid`. So this document's reading of
+  the base-condition percentile shortfall (0.919 against Wald's 0.964) stands
+  without a check on whether B = 100 contributes to it. `b_grid` remains a
+  supported cell key, and the ladder rows it produces are free, if the question
+  is ever wanted back; the B = 500 cell that anchored it was not free, at 23 % of
+  the bootstrap phase.
 - **The bootstrap resamples the second stage only**, never refitting nuisances —
   as PyTMLE does, and for the reason it cites. Under `oracle` that is the correct
   bootstrap; under `correct` it omits a genuine source of variability, which is

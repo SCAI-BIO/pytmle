@@ -140,28 +140,16 @@ wald_cells:
 # -- from the same draws, so `pct_*` against `bc_*` is a comparison of
 # constructions alone, and neither needs its own run.
 #
-# b_grid is free. `boot < b` takes the first b resamples of a set already drawn,
-# so the ladder is nested inside the run and paired to the draw; it adds
-# quantile arithmetic and no fitting. It answers "are B resamples enough to
-# resolve a 2.5 % quantile" per cell, which matters more for `bc_*` than for
-# `pct_*`: the bias correction moves the quantile *levels*, so it reads further
-# into the tail of the draw distribution.
+# No cell sets `b_grid`. The resample-count question -- "are B draws enough to
+# resolve a 2.5 % quantile" -- was dropped from the design: the ladder rows
+# themselves are free, but the B = 500 cell that anchored the question cost 23 %
+# of the run. `b_grid` remains a supported cell key if it is ever wanted back.
 boot_cells:
   # base control -- COMPLETED, 250 reps at B=100
   - {name: "BS12_n250_oracle", n: 250, arm: "oracle", reps: 250, n_bootstrap: 100,
-     seed_key: "BS12_n250_shared", axis: "base", level: "base", b_grid: [25, 50, 100]}
-  - {name: "B_OV2_n250_correct", n: 250, arm: "correct", reps: 150, seed_key: "OV2_n250", axis: "overlap", level: "OV2", target_times: [0.477676, 3.11961, 8.608445], params_override: {gamma: [1.5, -1.2, 0.9]}, n_bootstrap: 100, b_grid: [25, 50, 100]}
-  - {name: "B_OV3_n250_correct", n: 250, arm: "correct", reps: 150, seed_key: "OV3_n250", axis: "overlap", level: "OV3", target_times: [0.477676, 3.11961, 8.608445], params_override: {gamma: [2.0, -1.6, 1.2]}, n_bootstrap: 100, b_grid: [25, 50, 100]}
-  - {name: "B_RA2_n250_correct", n: 250, arm: "correct", reps: 150, seed_key: "RA2_n250", axis: "rare", level: "RA2", target_times: [0.477676, 3.11961, 8.608445], params_override: {alpha: [-4.2, -2.6]}, n_bootstrap: 100, b_grid: [25, 50, 100]}
-  - {name: "B_OV4_n250_correct", n: 250, arm: "correct", reps: 150, seed_key: "OV4_n250", axis: "overlap", level: "OV4", target_times: [0.477676, 3.11961, 8.608445], params_override: {gamma: [3.0, -2.4, 1.8]}, n_bootstrap: 100, b_grid: [25, 50, 100]}
-  - {name: "B_RA3_n250_correct", n: 250, arm: "correct", reps: 150, seed_key: "RA3_n250", axis: "rare", level: "RA3", target_times: [0.477676, 3.11961, 8.608445], params_override: {alpha: [-5.0, -2.6]}, n_bootstrap: 100, b_grid: [25, 50, 100]}
-
-  # B=500 at the BASE condition, not at a stressed one. The percentile
-  # shortfall actually measured (0.919 against Wald's 0.964) was here, so this
-  # tests "is the construction wrong, or are 100 draws too few for a 2.5 %
-  # quantile" on the exact cell where the effect was seen -- and at 2.24 s a
-  # resample it costs 3.9 h instead of the 38 h the same question would cost at
-  # OV3. Shares BS12's seed key, so it is the same 100 replicates.
-  - {name: "B_BASEb500_n250_oracle", n: 250, arm: "oracle", reps: 100,
-     n_bootstrap: 500, seed_key: "BS12_n250_shared", axis: "bootstrap_B",
-     level: "base@B500", b_grid: [100, 200, 500]}
+     seed_key: "BS12_n250_shared", axis: "base", level: "base"}
+  - {name: "B_OV2_n250_correct", n: 250, arm: "correct", reps: 150, seed_key: "OV2_n250", axis: "overlap", level: "OV2", target_times: [0.477676, 3.11961, 8.608445], params_override: {gamma: [1.5, -1.2, 0.9]}, n_bootstrap: 100}
+  - {name: "B_OV3_n250_correct", n: 250, arm: "correct", reps: 150, seed_key: "OV3_n250", axis: "overlap", level: "OV3", target_times: [0.477676, 3.11961, 8.608445], params_override: {gamma: [2.0, -1.6, 1.2]}, n_bootstrap: 100}
+  - {name: "B_RA2_n250_correct", n: 250, arm: "correct", reps: 150, seed_key: "RA2_n250", axis: "rare", level: "RA2", target_times: [0.477676, 3.11961, 8.608445], params_override: {alpha: [-4.2, -2.6]}, n_bootstrap: 100}
+  - {name: "B_OV4_n250_correct", n: 250, arm: "correct", reps: 150, seed_key: "OV4_n250", axis: "overlap", level: "OV4", target_times: [0.477676, 3.11961, 8.608445], params_override: {gamma: [3.0, -2.4, 1.8]}, n_bootstrap: 100}
+  - {name: "B_RA3_n250_correct", n: 250, arm: "correct", reps: 150, seed_key: "RA3_n250", axis: "rare", level: "RA3", target_times: [0.477676, 3.11961, 8.608445], params_override: {alpha: [-5.0, -2.6]}, n_bootstrap: 100}
