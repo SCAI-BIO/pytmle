@@ -909,10 +909,10 @@ construction serves both.
 
 **A methodological note on cost.** The scoped re-run to obtain this was estimated
 at ~519 CPU-hours across seven bootstrap cells. Checking the algebra first
-reduced it to zero for `basic`, and the remaining question -- `bca`, whose
-bias-correction needs the draw distribution and whose acceleration needs the
-influence curve -- was dropped as not worth ~90 CPU-hours once `basic` had
-answered the same question. Two changes make it cheap in future: every
-construction is now emitted under every filter, and the **raw draws are archived**
-beside each shard, so a new interval construction never requires re-running the
-fits again.
+reduced it to zero for `basic`, which is an exact reflection of the stored
+percentile bounds. The bias-corrected interval is not derivable that way -- its
+levels need the draw distribution, which stored bounds do not carry -- so it is
+now emitted by the run itself, beside `pct_*` and from the same draws. Two
+changes make any *further* construction cheap: every construction is emitted
+under every filter, and the **raw draws are archived** beside each shard, so a
+new interval construction never requires re-running the fits again.

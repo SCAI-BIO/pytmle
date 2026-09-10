@@ -48,9 +48,18 @@ worth — throughput ceilings there (see the `--n-jobs` note below), so 8 worker
 puts Study A at roughly 8 hours and Study B at **two to four days**.
 
 Study B is the long one, and two thirds of it is bootstrap: the seven cells with
-`n_bootstrap > 0` account for **518 of the 789** CPU-hours. Dropping them from the
+`n_bootstrap > 0` account for **525 of the ~795** CPU-hours. Dropping them from the
 config leaves a ~270 CPU-hour run that still answers the coverage question on
 every stress axis — only the Wald-versus-bootstrap comparison is lost.
+
+Those seven cells produce **both** bootstrap interval constructions in one run:
+`pct_*` (percentile) and `bc_*` (bias-corrected), from identical draws and under
+each of the four convergence filters, plus a nested resample-count ladder
+(`*_all@B{b}`) from the `b_grid` of each cell. None of that costs a second
+resample — they are all quantiles of draws already paid for — so there is no
+configuration in which you get one construction and have to re-run for the other.
+The reverse-percentile interval (`basic_*`) is not resampled for at all; it is an
+exact reflection of `pct_*` and the report derives it on load.
 
 Study C's disk figure is the exported per-replicate nuisance arrays, which are
 `(n × K)` doubles and dominate everything else. They scale as O(n²) — 5 MB per

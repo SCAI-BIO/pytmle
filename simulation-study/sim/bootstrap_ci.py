@@ -8,12 +8,16 @@ interval constructions can be compared on *identical* resamples, and the
 convergence information, which PyTMLE's own path silently drops in three separate
 places.
 
-**The RNG is ours.** `bootstrap.standard_bootstrap` draws from the unseeded
-legacy global (`np.random.choice`), so PyTMLE's bootstrap intervals are not
-reproducible run to run. Here the resample indices are generated from a seeded
-`Generator` and passed in explicitly, which makes the study reproducible and lets
-every interval construction see the same draws. The difference is in *which*
-resamples are drawn, never in what is done with them.
+**The RNG is ours.** The resample indices are generated from a seeded
+`Generator` and passed in explicitly, which makes the study reproducible and
+lets every interval construction see the same draws. The difference from
+PyTMLE's own path is in *which* resamples are drawn, never in what is done with
+them. (PyTMLE's resamplers once drew from the unseeded legacy global, which under
+a forking pool gave every worker the same stream and so `n_bootstrap / n_jobs`
+distinct resamples rather than `n_bootstrap`. That is fixed in
+`pytmle.bootstrap` now; this module was never affected, because it has always
+taken an explicit generator and parallelises across replicates with `n_jobs=1`
+inside each.)
 
 Three failure modes are counted separately, because they have different causes
 and different remedies:
@@ -37,9 +41,9 @@ import numpy as np
 import pandas as pd
 from scipy.stats import norm
 
-__all__ = ["BootstrapDraws", "bootstrap_draws", "intervals_from_draws",
-           "wald_interval", "log_wald_interval", "logit_wald_interval",
-           "atanh_wald_interval"]
+__all__ = ["BootstrapDraws", "CONSTRUCTIONS", "bootstrap_draws",
+           "intervals_from_draws", "wald_interval", "log_wald_interval",
+           "logit_wald_interval", "atanh_wald_interval"]
 
 
 @dataclass
@@ -169,65 +173,69 @@ def bootstrap_draws(
 # ---------------------------------------------------------------------------
 
 
-def _bca_acceleration(ic: Optional[np.ndarray]) -> float:
-    """Acceleration from the empirical influence function.
-
-    The textbook BCa acceleration is a jackknife over observations, which here
-    would mean `n` extra second-stage fits per replicate -- more expensive than
-    the bootstrap it is correcting. For a smooth functional the jackknife
-    influence values are asymptotically the influence function, which PyTMLE has
-    already computed, so
-
-        a = (1/6) * sum(L^3) / (sum(L^2))^(3/2)
-
-    gives the same quantity for free. This is the standard empirical-influence
-    form of BCa, not an approximation invented here.
-    """
-    if ic is None or len(ic) < 3:
-        return 0.0
-    L = np.asarray(ic, dtype=float) - float(np.mean(ic))
-    denom = float(np.sum(L ** 2)) ** 1.5
-    return float(np.sum(L ** 3) / (6.0 * denom)) if denom > 0 else 0.0
+#: The interval constructions this study resamples for, in the order it prefers
+#: them. Both come out of one call on identical draws, so the comparison between
+#: them is a comparison of *constructions* and nothing else.
+CONSTRUCTIONS = ("percentile", "bc")
 
 
 def intervals_from_draws(
     draws: np.ndarray,
     point: float,
     alpha: float = 0.05,
-    ic: Optional[np.ndarray] = None,
 ) -> Dict[str, Tuple[float, float]]:
-    """Percentile, basic and BCa intervals from one set of draws.
+    """Percentile and bias-corrected intervals from one set of draws.
 
-    All three see identical resamples, so a difference between them isolates the
-    *interval construction* rather than the resampling.
+    ``percentile``
+        the ``alpha/2`` and ``1 - alpha/2`` quantiles of the draws. Fixed
+        levels, so it carries none of the estimation error a data-dependent
+        level does.
+    ``bc``
+        the same quantiles read at levels shifted by twice the median-bias
+        correction,
+
+            z0 = Phi^-1( mean(draw < point) ),
+            a1 = Phi(2 z0 + z_{alpha/2}),  a2 = Phi(2 z0 + z_{1-alpha/2}).
+
+    Both see identical resamples, so a difference between them isolates the
+    interval construction rather than the resampling.
+
+    There is deliberately no acceleration term, here or in `pytmle.bootstrap`:
+    measured on this DGP it sat an order of magnitude below the sampling error
+    in `z0`, moving the levels by under 1 % while making them depend on the
+    influence curve's third moment.
+
+    The reverse-percentile ("basic") interval is deliberately not computed here.
+    It is a deterministic reflection of the percentile interval about the point
+    estimate, so the report derives it from stored bounds exactly and for free
+    -- see `study_b_report._derive_basic`. Resampling for it would be waste.
+
+    `bc` falls back to the percentile interval, silently and by design, when the
+    bias correction is undefined: every draw on one side of the point estimate
+    makes the fraction 0 or 1 and `z0` infinite. That is not a rare pathology
+    but the normal state when an estimand sits near the boundary of its support.
     """
     d = np.asarray(draws, dtype=float)
     d = d[np.isfinite(d)]
     if len(d) < 2:
         nan = (np.nan, np.nan)
-        return {"percentile": nan, "basic": nan, "bca": nan}
+        return {k: nan for k in CONSTRUCTIONS}
 
     lo_q, hi_q = alpha / 2, 1 - alpha / 2
     pct = (float(np.quantile(d, lo_q)), float(np.quantile(d, hi_q)))
-    # basic (reverse percentile): reflects the draws about the point estimate,
-    # which corrects bias in the opposite direction to the percentile interval
-    basic = (float(2 * point - np.quantile(d, hi_q)),
-             float(2 * point - np.quantile(d, lo_q)))
 
     frac = float(np.mean(d < point))
     if frac <= 0 or frac >= 1:
-        bca = pct   # z0 undefined; fall back rather than emit an infinite bound
+        bc = pct   # z0 undefined; fall back rather than emit an infinite bound
     else:
         z0 = float(norm.ppf(frac))
-        a = _bca_acceleration(ic)
         zl, zh = norm.ppf(lo_q), norm.ppf(hi_q)
-        a1 = norm.cdf(z0 + (z0 + zl) / (1 - a * (z0 + zl)))
-        a2 = norm.cdf(z0 + (z0 + zh) / (1 - a * (z0 + zh)))
+        a1, a2 = norm.cdf(2 * z0 + zl), norm.cdf(2 * z0 + zh)
         if not (np.isfinite(a1) and np.isfinite(a2)) or a1 >= a2:
-            bca = pct
+            bc = pct
         else:
-            bca = (float(np.quantile(d, a1)), float(np.quantile(d, a2)))
-    return {"percentile": pct, "basic": basic, "bca": bca}
+            bc = (float(np.quantile(d, a1)), float(np.quantile(d, a2)))
+    return {"percentile": pct, "bc": bc}
 
 
 def wald_interval(point: float, se: float, alpha: float = 0.05) -> Tuple[float, float]:

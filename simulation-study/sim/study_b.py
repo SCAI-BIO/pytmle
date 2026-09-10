@@ -23,16 +23,23 @@ Procedures, per (estimand, event, tau, group):
                   finding is "the interval is on the wrong scale", not "the
                   asymptotics fail" -- a one-line fix rather than a bootstrap.
     pct_*         percentile
-    basic_*       reverse-percentile
-    bca_*         bias-corrected and accelerated
+    bc_*          bias-corrected
 
-Each of the three constructions is emitted under each of four filtering rules, so
-the procedure label is `{construction}_{filter}` -- `pct_all`, `bca_all`,
-`basic_convfilter`, and so on. They come from one call to
-`intervals_from_draws`, so the full cross costs nothing at run time, and it is
-the only way to read construction and filter apart: `basic` and `bca` were once
-emitted under the convergence filter alone, which made their weak showing a
-measurement of the filter rather than of the construction.
+One bootstrap run yields **both** constructions. They are quantiles of the same
+draws -- `intervals_from_draws` returns them together -- so the second costs
+nothing beyond the first, and reading them side by side never requires a second
+run. There is no accelerated variant; `pytmle.bootstrap` does not offer one
+either, and `bootstrap_ci.intervals_from_draws` records why.
+
+Each construction is emitted under each of four filtering rules, so the
+procedure label is `{construction}_{filter}` -- `pct_all`, `bc_all`,
+`pct_convfilter`, and so on. The full cross is what reads construction and
+filter apart, and it is free for the same reason.
+
+The reverse-percentile (`basic_*`) interval is *not* resampled for. It is an
+exact reflection of the percentile interval about the point estimate, so the
+report derives it from the stored bounds instead -- same numbers, no draws. See
+`study_b_report._derive_basic`.
 
 The four filtering rules exist to attribute coverage loss to the bootstrap's
 failure modes. Draws are tagged rather than filtered, so the interval can be
@@ -201,7 +208,7 @@ class BCell:
 
 
 def _main_fit(sm, ie, taus, events, min_nuisance, max_updates) -> pd.DataFrame:
-    """Point estimates, EIC standard errors, and the IC itself (for BCa)."""
+    """Point estimates and EIC standard errors from the main (unresampled) fit."""
     from pytmle import PyTMLE
 
     model = PyTMLE(sm.df, target_times=list(taus), initial_estimates=ie,
@@ -224,27 +231,6 @@ def _main_fit(sm, ie, taus, events, min_nuisance, max_updates) -> pd.DataFrame:
         rows.append(p)
     out = pd.concat(rows, ignore_index=True) if rows else pd.DataFrame()
     return out, model
-
-
-def _ic_for_bca(model, key_1: int = 1, key_0: int = 0) -> Dict:
-    """Per-subject influence values, keyed by (type, Event, Time, Group).
-
-    BCa's acceleration is a jackknife over observations in the textbook, which
-    would cost `n` extra second-stage fits per replicate. For a smooth functional
-    the jackknife influence values are asymptotically the influence function,
-    which the fit has already produced, so it is taken from there instead.
-    """
-    out = {}
-    try:
-        ue = model._updated_estimates
-        ic1 = ue[key_1].ic.set_index(["ID", "Event", "Time"])["IC"]
-        ic0 = ue[key_0].ic.set_index(["ID", "Event", "Time"])["IC"]
-        d = (ic1 - ic0).reset_index()
-        for (ev, t), g in d.groupby(["Event", "Time"]):
-            out[("rd", int(ev), float(t), -1)] = g["IC"].to_numpy()
-    except Exception:
-        pass
-    return out
 
 
 def _condition_diagnostics(sm, ie, nd, p, taus, min_nuisance) -> Dict:
@@ -310,9 +296,10 @@ def _one_rep_b(args) -> tuple:
     first element feeds the report; the second is archived beside the shard.
     """
     cell, taus, seed_state, rep = args
-    from .bootstrap_ci import (atanh_wald_interval, bootstrap_draws,
-                               intervals_from_draws, log_wald_interval,
-                               logit_wald_interval, wald_interval)
+    from .bootstrap_ci import (CONSTRUCTIONS, atanh_wald_interval,
+                               bootstrap_draws, intervals_from_draws,
+                               log_wald_interval, logit_wald_interval,
+                               wald_interval)
 
     rng = np.random.default_rng(seed_state)
     p = cell.dgp_params()
@@ -389,7 +376,6 @@ def _one_rep_b(args) -> tuple:
                     n_usable=bd.n_usable, first_error=bd.first_error,
                     boot_seconds=time.time() - tb,
                     median_steps=float(np.median(bd.steps)) if bd.steps else np.nan)
-        ics = _ic_for_bca(model)
         d = bd.draws
         if len(d):
             draws_out = d.copy()
@@ -411,17 +397,16 @@ def _one_rep_b(args) -> tuple:
                     if drop2:
                         sub = sub[sub["Converged"]]
                     iv = intervals_from_draws(sub["Pt Est"].to_numpy(), point,
-                                              ALPHA, ics.get(key))
+                                              ALPHA)
                     eff = int(sub["boot"].nunique())
-                    # All three constructions under *every* filter.
+                    # Both constructions under *every* filter.
                     # `intervals_from_draws` computes them together, so this is
-                    # free at run time -- and previously `basic` and `bca` were
-                    # emitted only under the convergence filter, which confounded
-                    # the interval construction with the filter. Their weak
-                    # showing at OV4 (0.493 and 0.708 against the percentile's
-                    # 0.960) measured the filter, not the construction.
+                    # free at run time -- and it is the only way to keep the
+                    # construction from being confounded with the filter, which
+                    # is what happened when the non-percentile constructions
+                    # were emitted under the convergence filter alone.
                     suffix = label[len("pct_"):]
-                    for kind in ("percentile", "basic", "bca"):
+                    for kind in CONSTRUCTIONS:
                         name = ("pct" if kind == "percentile" else kind)
                         _emit(f"{name}_{suffix}", typ, ev, tt, grp, point,
                               *iv[kind], eff_b=eff)
@@ -435,9 +420,9 @@ def _one_rep_b(args) -> tuple:
                     if sub.empty:
                         continue
                     ivb = intervals_from_draws(sub["Pt Est"].to_numpy(), point,
-                                               ALPHA, ics.get(key))
+                                               ALPHA)
                     eb = int(sub["boot"].nunique())
-                    for kind in ("percentile", "basic", "bca"):
+                    for kind in CONSTRUCTIONS:
                         nm = ("pct" if kind == "percentile" else kind)
                         _emit(f"{nm}_all@B{int(b)}", typ, ev, tt, grp, point,
                               *ivb[kind], eff_b=eb)

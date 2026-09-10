@@ -332,14 +332,15 @@ filtered bootstrap; removing the filter did.
 
 ## 12. Limitations
 
-- **`bca` is confounded with the filter, and is not reported.** It was computed
-  on the convergence-filtered draws only, so its weak showing measures the filter
-  rather than the construction. Unlike `basic` it cannot be recovered from stored
-  output — its bias-correction needs the draw distribution and its acceleration
-  the influence curve, neither of which was saved — and re-running the bootstrap
-  cells to obtain it was judged not worth ~90 CPU-hours once `basic` had answered
-  the same question for free. Future runs emit all three constructions under all
-  four filters and archive the raw draws, so the question is cheap from here on.
+- **`bc_*` requires a re-run, and the results in this document predate it.** The
+  bias-corrected interval is now emitted by every bootstrap cell, from the same
+  draws as `pct_*` and under all four filters. The cells reported here were run
+  before that, so they carry no `bc_*` rows: unlike `basic`, the bias correction
+  needs the draw distribution and cannot be recovered from stored bounds, and the
+  draws of those cells were not archived. Re-running the seven bootstrap cells
+  costs ~525 CPU-hours (~26 h at 20 workers) and is the only way to obtain the
+  percentile-against-bias-corrected comparison. Until then the two-marker
+  construction figures (`study_b_*_bc.png`) are not produced.
 - **The bootstrap resamples the second stage only**, never refitting nuisances —
   as PyTMLE does, and for the reason it cites. Under `oracle` that is the correct
   bootstrap; under `correct` it omits a genuine source of variability, which is
@@ -372,5 +373,6 @@ construction, verified to 0.0 against cells that carry both.
 arm), carrying the per-draw convergence flags. Nothing in the report reads them.
 They exist so that a *new* interval construction — studentized, a different α, a
 filter not currently defined — is a table operation rather than another 519
-CPU-hours. The cells run before this change have no archive, which is why `bca`
-on unfiltered draws is absent from this document rather than merely unreported.
+CPU-hours. The cells run before this change have no archive, which is why the
+bias-corrected interval on unfiltered draws is absent from this document rather
+than merely unreported.

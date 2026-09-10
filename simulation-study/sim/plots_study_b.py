@@ -34,7 +34,7 @@ import pandas as pd
 from .plots import GRID, INK, INK2, MUTED, SURFACE, _style, _titles
 
 __all__ = ["plot_axis", "plot_min_nuisance", "plot_procedures",
-           "plot_bca_pilot", "make_all_b"]
+           "plot_b_ladder", "make_all_b"]
 
 #: Sample size is the series dimension in the dose-response figures, so the ramp
 #: is ordinal: darker = more data. Slots from the validated categorical set.
@@ -51,13 +51,13 @@ PROC_COLOUR = {
     # Hue carries the construction, lightness the filter: the comparison the
     # procedures figure exists to make is construction against construction, and
     # the filter is the nuisance dimension.
-    "pct_all": "#eb6834", "basic_all": "#1baf7a", "bca_all": "#e87ba4",
-    "pct_convfilter": "#8a8985", "basic_convfilter": "#7fd3b4",
-    "bca_convfilter": "#f2b6cc",
-    "pct_dropmode1": "#6f5bb0", "basic_dropmode1": "#0e7a55",
-    "bca_dropmode1": "#b8557c",
-    "pct_strict": "#3d3c3a", "basic_strict": "#0a5c40",
-    "bca_strict": "#8c3f5e",
+    "pct_all": "#eb6834", "bc_all": "#7b5bd6", "basic_all": "#1baf7a",
+    "pct_convfilter": "#8a8985", "bc_convfilter": "#b3a3e6",
+    "basic_convfilter": "#7fd3b4",
+    "pct_dropmode1": "#f2a07c", "bc_dropmode1": "#4b2f9e",
+    "basic_dropmode1": "#0e7a55",
+    "pct_strict": "#3d3c3a", "bc_strict": "#2b1a63",
+    "basic_strict": "#0a5c40",
 }
 
 AXIS_TITLE = {
@@ -149,27 +149,23 @@ BOOT_SERIES_DEFAULT = (
     (BOOT_PROC, "*", 11, BOOT_COLOUR, "bootstrap (percentile, all draws, B = 100)"),
 )
 
-#: The construction comparison, for the `*_bca` variants.
+#: The construction comparison: percentile against bias-corrected.
 #:
-#: **Both are drawn at the convergence filter, and that is not a preference.**
-#: `bca_all` does not exist for these cells: they ran before every construction
-#: was emitted under every filter, and unlike `basic` -- a deterministic
-#: reflection of the percentile interval -- BCa cannot be recovered from stored
-#: bounds, because its bias correction needs the draw distribution and its
-#: acceleration the influence curve. So the only *fair* BCa-against-percentile
-#: contrast available here is the one where both see the same filtered draws.
+#: **Both are unfiltered, and that is the point.** One bootstrap run emits every
+#: construction under every filter, so these two are quantiles of *identical*
+#: draws from identical fits and the gap between the markers is the interval
+#: construction and nothing else.
 #:
-#: `pct_all` is drawn beside them because it is what PyTMLE now produces, and the
-#: gap between the two stars is the filter's cost -- not a property of either
-#: construction. The unconfounded comparison, on unfiltered draws, is the BCa
-#: pilot: `results/bca_pilot`, plotted by `plot_bca_pilot`.
-BOOT_SERIES_BCA = (
+#: This was not always available. The earlier variant of this figure had to draw
+#: both at the convergence filter, because the non-percentile constructions were
+#: then emitted under that filter alone -- which made the gap a measurement of
+#: the filter rather than of the construction. Cells run before that was fixed
+#: carry no `bc_all` and simply do not get this figure.
+BOOT_SERIES_BC = (
     ("pct_all", "*", 11, PROC_COLOUR["pct_all"],
-     "percentile, all draws (PyTMLE today)"),
-    ("pct_convfilter", "*", 9, PROC_COLOUR["pct_convfilter"],
-     "percentile, convergence-filtered"),
-    ("bca_convfilter", "^", 7.5, PROC_COLOUR["bca_convfilter"],
-     "BCa, convergence-filtered"),
+     "bootstrap: percentile, all draws"),
+    ("bc_all", "D", 6.5, PROC_COLOUR["bc_all"],
+     "bootstrap: bias-corrected, all draws"),
 )
 
 
@@ -486,34 +482,50 @@ def plot_procedures(perf: pd.DataFrame, out: Path | str, typ: str = "rd",
     return out
 
 
-#: Constructions compared in the pilot, all on the *same unfiltered* draws.
+#: Constructions drawn on the resample-count ladder, all on the *same
+#: unfiltered* draws.
 #:
-#: The reverse-percentile (`basic`) interval is deliberately not drawn: the pilot
-#: exists to decide between BCa and the percentile interval as PyTMLE's shipped
-#: default, and a third line makes that comparison harder to read. `basic` is
-#: still computed and remains in `study_b_performance.csv`; its own result --
-#: identical width to the percentile interval, so any coverage difference is
-#: pure location -- is in STUDY_B.md 10.3.
-PILOT_PROCS = (("pct", "percentile", PROC_COLOUR["pct_all"], "o"),
-               ("bca", "BCa", PROC_COLOUR["bca_all"], "^"))
+#: The reverse-percentile (`basic`) interval is deliberately not drawn: the
+#: ladder exists to read percentile against bias-corrected, and a third line
+#: makes that harder to see. `basic` is still derived and remains in
+#: `study_b_performance.csv`; its own result -- identical width to the
+#: percentile interval, so any coverage difference is pure location -- is in
+#: STUDY_B.md 10.3.
+LADDER_PROCS = (("pct", "percentile", PROC_COLOUR["pct_all"], "o"),
+                ("bc", "bias-corrected", PROC_COLOUR["bc_all"], "D"))
 
-PILOT_CELL_TITLE = {"BCA_base": "base (oracle)", "BCA_OV3": "OV3 — positivity",
-                    "BCA_RA3": "RA3 — rare events"}
+#: Readable column headings for the bootstrap cells. Anything absent falls back
+#: to the cell name, so a new cell needs no entry to be plotted.
+CELL_TITLE = {
+    "B_BASEb500_n250_oracle": "base (oracle)",
+    "B_OV2_n250_correct": "OV2 — positivity",
+    "B_OV3_n250_correct": "OV3 — positivity",
+    "B_OV4_n250_correct": "OV4 — positivity",
+    "B_RA2_n250_correct": "RA2 — rare events",
+    "B_RA3_n250_correct": "RA3 — rare events",
+    "BS12_n250_correct": "base (correct)",
+    "BS12_n250_oracle": "base (oracle)",
+}
 
 
-def plot_bca_pilot(perf: pd.DataFrame, out: Path | str, value: str = "coverage",
-                   typ: str = "rd", event: int = 1) -> Optional[Path]:
-    """The construction comparison the Study B cells cannot make.
+def plot_b_ladder(perf: pd.DataFrame, out: Path | str, value: str = "coverage",
+                  typ: str = "rd", event: int = 1) -> Optional[Path]:
+    """Does the resample count matter, and does it matter differently per construction?
 
-    Rows are `tau`, columns are condition, and **x is the resample count** -- the
-    dimension the pilot exists to test, since BCa adjusts the quantile *levels*
-    rather than the draws and can therefore need more resamples than the
-    percentile interval to resolve them.
+    Rows are `tau`, columns are condition, and **x is the resample count**. That
+    is the dimension worth testing here: the bias correction adjusts the quantile
+    *levels* rather than the draws, so it reads the tails of the draw
+    distribution and can need more resamples than the percentile interval to
+    resolve them.
 
-    Every procedure here is computed from the same unfiltered draws of the same
-    fits, so a vertical gap is the interval construction and nothing else. Wald
-    is drawn flat across `B` as the reference: it does not depend on the
-    bootstrap at all, and it is what a user gets today without one.
+    Drawn only where a cell configured a `b_grid`. Those rows are nested subsets
+    of one set of draws -- `boot < b` takes the first `b` resamples -- so the
+    comparison across `B` is paired to the draw, not two independent bootstraps.
+
+    Every procedure here comes from the same unfiltered draws of the same fits,
+    so a vertical gap is the interval construction and nothing else. Wald is
+    drawn flat across `B` as the reference: it does not depend on the bootstrap
+    at all, and it is what a user gets without one.
     """
     d = perf[(perf["type"] == typ) & (perf["event"] == event)].copy()
     d = d[d["procedure"].notna()]
@@ -524,8 +536,7 @@ def plot_bca_pilot(perf: pd.DataFrame, out: Path | str, value: str = "coverage",
     grid["kind"] = grid["procedure"].str.replace(r"_all@B\d+", "", regex=True)
     wald = d[d["procedure"] == "wald"]
 
-    cells = [c for c in ("BCA_base", "BCA_OV3", "BCA_RA3")
-             if c in set(grid["cell"])] or sorted(grid["cell"].unique())
+    cells = sorted(grid["cell"].unique())
     taus = sorted(grid["time"].unique())
     bs = sorted(grid["B"].unique())
     fig, axes = plt.subplots(len(taus), len(cells),
@@ -543,7 +554,7 @@ def plot_bca_pilot(perf: pd.DataFrame, out: Path | str, value: str = "coverage",
             if len(w) and np.isfinite(float(w.iloc[0][value])):
                 ax.axhline(float(w.iloc[0][value]), color=PROC_COLOUR["wald"],
                            linewidth=1.4, zorder=3, label="Wald (no bootstrap)")
-            for kind, lab, col, mk in PILOT_PROCS:
+            for kind, lab, col, mk in LADDER_PROCS:
                 g = (grid[(grid["cell"] == cell) & (grid["time"] == tt)
                           & (grid["kind"] == kind)].sort_values("B"))
                 if g.empty:
@@ -563,7 +574,7 @@ def plot_bca_pilot(perf: pd.DataFrame, out: Path | str, value: str = "coverage",
             ax.set_xticklabels([str(b) for b in bs], fontsize=8)
             ax.grid(True, axis="y", color=GRID, linewidth=0.8, alpha=0.9)
             if i == 0:
-                ax.set_title(PILOT_CELL_TITLE.get(cell, cell), fontsize=9,
+                ax.set_title(CELL_TITLE.get(cell, cell), fontsize=9,
                              color=INK, pad=6)
             if j == 0:
                 ax.set_ylabel(f"tau = {tt:.2f}\n{value.replace('_', ' ')}",
@@ -597,27 +608,27 @@ def make_all_b(perf: pd.DataFrame, out_dir: Path | str) -> Dict[str, Path]:
             p = plot_axis(perf, axis, out_dir / f"study_b_{axis}_{arm}.png", arm=arm)
             if p:
                 made[f"{axis}_{arm}"] = p
-            # Variant carrying the construction comparison as well. Only drawn
-            # where a BCa row exists; see BOOT_SERIES_BCA for why both bootstrap
-            # constructions there are the convergence-filtered ones.
-            if (perf["procedure"] == "bca_convfilter").any():
+            # Variant carrying both bootstrap constructions. Drawn wherever a
+            # `bc_all` row exists, i.e. for any cell run since the bootstrap
+            # started emitting every construction under every filter.
+            if (perf["procedure"] == "bc_all").any():
                 p = plot_axis(perf, axis,
-                              out_dir / f"study_b_{axis}_{arm}_bca.png",
-                              arm=arm, series=BOOT_SERIES_BCA)
+                              out_dir / f"study_b_{axis}_{arm}_bc.png",
+                              arm=arm, series=BOOT_SERIES_BC)
                 if p:
-                    made[f"{axis}_{arm}_bca"] = p
+                    made[f"{axis}_{arm}_bc"] = p
     p = plot_min_nuisance(perf, out_dir / "study_b_min_nuisance.png")
     if p:
         made["min_nuisance"] = p
     p = plot_procedures(perf, out_dir / "study_b_procedures.png")
     if p:
         made["procedures"] = p
-    # Only present when a B-ladder was run (the BCa pilot); harmless otherwise.
+    # Only present when a cell configured a `b_grid`; harmless otherwise.
     for val, tag in (("coverage", "coverage"), ("mean_width", "width"),
                      ("se_ratio", "se_sd")):
-        p = plot_bca_pilot(perf, out_dir / f"bca_pilot_{tag}.png", value=val)
+        p = plot_b_ladder(perf, out_dir / f"study_b_ladder_{tag}.png", value=val)
         if p:
-            made[f"bca_pilot_{tag}"] = p
+            made[f"ladder_{tag}"] = p
     return made
 
 

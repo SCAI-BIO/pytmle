@@ -238,7 +238,8 @@ def test_performance_does_not_null_unknown_procedures():
     """A procedure absent from `PROC_ORDER` must not be silently erased.
 
     `pd.Categorical(values, PROC_ORDER)` treats the list as a *whitelist*: any
-    label not on it becomes NaN. The BCa pilot's `{construction}_all@B{b}` rows
+    label not on it becomes NaN. The resample-count ladder's
+    `{construction}_all@B{b}` rows
     were computed, written to the shards -- 3240 rows per shard -- and then
     nulled at report time, so every table came back empty while the data sat
     intact on disk. Same shape as the other bugs here: exit code zero, plausible
@@ -254,11 +255,11 @@ def test_performance_does_not_null_unknown_procedures():
                 seed_key="C", target_times=(1.0,))
     rows = [{**base, "rep": i, "procedure": p}
             for i in range(4)
-            for p in ("wald", "pct_all", "bca_all@B100", "pct_all@B500")]
+            for p in ("wald", "pct_all", "bc_all@B100", "pct_all@B500")]
     out = performance_b(pd.DataFrame(rows), config="base", n_mc=20_000)
 
     got = set(out["procedure"].dropna().astype(str))
-    assert "bca_all@B100" in got, "unknown procedure erased by the category list"
+    assert "bc_all@B100" in got, "unknown procedure erased by the category list"
     assert "pct_all@B500" in got
     assert out["procedure"].isna().sum() == 0, "some procedure became NaN"
     # and the known ones must still sort first
