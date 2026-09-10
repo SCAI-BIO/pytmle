@@ -42,10 +42,15 @@ class EvaluesBenchmark:
             self.rr_full["CI_upper"],
         )
         if full_model._bootstrap_results is not None:
-            self.rr_full["Limiting bound (bootstrap)"] = np.where(
-                self.rr_full["E_value CI limit (bootstrap)"] == "lower",
-                self.rr_full["CI_lower_bootstrap"],
-                self.rr_full["CI_upper_bootstrap"],
+            self.rr_full["Limiting bound (bootstrap, percentile)"] = np.where(
+                self.rr_full["E_value CI limit (bootstrap, percentile)"] == "lower",
+                self.rr_full["CI_lower_bootstrap_pct"],
+                self.rr_full["CI_upper_bootstrap_pct"],
+            )
+            self.rr_full["Limiting bound (bootstrap, bc)"] = np.where(
+                self.rr_full["E_value CI limit (bootstrap, bc)"] == "lower",
+                self.rr_full["CI_lower_bootstrap_bc"],
+                self.rr_full["CI_upper_bootstrap_bc"],
             )
         if self.skip_benchmark:
             return
@@ -85,19 +90,31 @@ class EvaluesBenchmark:
                 full_model._bootstrap_results is not None
                 and tmle._bootstrap_results is not None
             ):
-                ci_rr_bs = np.where(
-                    self.rr_full["E_value CI limit (bootstrap)"] == "lower",
-                    rr["CI_lower_bootstrap"],
-                    rr["CI_upper_bootstrap"],
+                ci_rr_bs_pct = np.where(
+                    self.rr_full["E_value CI limit (bootstrap, percentile)"] == "lower",
+                    rr["CI_lower_bootstrap_pct"],
+                    rr["CI_upper_bootstrap_pct"],
                 )
-                rr["E_value measured (bootstrap)"] = [
+                rr["E_value measured (bootstrap, percentile)"] = [
                     self._observed_covariate_evalue(ci, ci_new)
                     for ci, ci_new in zip(
-                        self.rr_full["Limiting bound (bootstrap)"], ci_rr_bs
+                        self.rr_full["Limiting bound (bootstrap, percentile)"], ci_rr_bs_pct
+                    )
+                ]
+                ci_rr_bs_bc = np.where(
+                    self.rr_full["E_value CI limit (bootstrap, bc)"] == "lower",
+                    rr["CI_lower_bootstrap_bc"],
+                    rr["CI_upper_bootstrap_bc"],
+                )
+                rr["E_value measured (bootstrap, bc)"] = [
+                    self._observed_covariate_evalue(ci, ci_new)
+                    for ci, ci_new in zip(
+                        self.rr_full["Limiting bound (bootstrap, bc)"], ci_rr_bs_bc
                     )
                 ]
             else:
-                rr["E_value measured (bootstrap)"] = np.nan
+                rr["E_value measured (bootstrap, percentile)"] = np.nan
+                rr["E_value measured (bootstrap, bc)"] = np.nan
             evalues_df_list.append(
                 rr[
                     [
@@ -106,7 +123,8 @@ class EvaluesBenchmark:
                         "Time",
                         "Event",
                         "E_value measured",
-                        "E_value measured (bootstrap)",
+                        "E_value measured (bootstrap, percentile)",
+                        "E_value measured (bootstrap, bc)",
                     ]
                 ]
             )
@@ -149,6 +167,7 @@ class EvaluesBenchmark:
         color_benchmarking: str,
         plot_size: Tuple[float, float],
         use_bootstrap: bool = False,
+        bootstrap_method: str = "percentile"
     ) -> Generator[tuple, None, None]:
         for ev in target_events:
             for t in target_times:
@@ -161,6 +180,7 @@ class EvaluesBenchmark:
                     target_event=ev,
                     target_time=t,
                     use_bootstrap=use_bootstrap,
+                    bootstrap_method=bootstrap_method,
                 ) + (t, ev)
 
     def _plot(
@@ -173,17 +193,26 @@ class EvaluesBenchmark:
         color_benchmarking: str,
         plot_size: tuple,
         use_bootstrap: bool,
+        bootstrap_method: str,
         **kwargs,
     ):
         fig, ax = plt.subplots(1, 1, figsize=plot_size)
 
-        evalue_ci_key = "E_value CI (bootstrap)" if use_bootstrap else "E_value CI"
-        limiting_bound_key = (
-            "Limiting bound (bootstrap)" if use_bootstrap else "Limiting bound"
-        )
-        evalue_measured_key = (
-            "E_value measured (bootstrap)" if use_bootstrap else "E_value measured"
-        )
+        if use_bootstrap:
+            if bootstrap_method == "percentile":
+                evalue_ci_key = "E_value CI (bootstrap, percentile)"
+                limiting_bound_key = "Limiting bound (bootstrap, percentile)"
+                evalue_measured_key = "E_value measured (bootstrap, percentile)"
+            elif bootstrap_method == "bc":
+                evalue_ci_key = "E_value CI (bootstrap, bc)"
+                limiting_bound_key = "Limiting bound (bootstrap, bc)"
+                evalue_measured_key = "E_value measured (bootstrap, bc)"
+            else:
+                raise ValueError("Invalid bootstrap method specified.")
+        else:
+            evalue_ci_key = "E_value CI"
+            limiting_bound_key = "Limiting bound"
+            evalue_measured_key = "E_value measured"
 
         full_df = self.rr_full[
             (self.rr_full["Time"] == target_time)

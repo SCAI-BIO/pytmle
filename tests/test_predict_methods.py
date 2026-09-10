@@ -82,8 +82,10 @@ def test_ate_ratio(mock_updated_estimates):
             "E_value",
             "E_value CI",
             "E_value CI limit",
-            "E_value CI (bootstrap)",
-            "E_value CI limit (bootstrap)",
+            "E_value CI (bootstrap, percentile)",
+            "E_value CI limit (bootstrap, percentile)",
+            "E_value CI (bootstrap, bc)",
+            "E_value CI limit (bootstrap, bc)",
         }
         assert result["SE"].isna().all() == g_comp # should be all NA for g_comp=True
         assert result["CI_lower"].isna().all() == g_comp # should be all NA for g_comp=True
@@ -122,8 +124,10 @@ def test_ate_diff(mock_updated_estimates):
             "E_value",
             "E_value CI",
             "E_value CI limit",
-            "E_value CI (bootstrap)",
-            "E_value CI limit (bootstrap)",
+            "E_value CI (bootstrap, percentile)",
+            "E_value CI limit (bootstrap, percentile)",
+            "E_value CI (bootstrap, bc)",
+            "E_value CI limit (bootstrap, bc)",
         }
         assert result["SE"].isna().all() == g_comp # should be all NA for g_comp=True
         assert result["CI_lower"].isna().all() == g_comp # should be all NA for g_comp=True
