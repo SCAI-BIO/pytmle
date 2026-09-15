@@ -125,11 +125,15 @@ def mock_main_class_inputs() -> Dict[str, Any]:
 def mock_tmle_update_inputs() -> Dict[str, Any]:
     # create mock initial estimates for testing, using default n_samples of 1000
     df = get_mock_input_data()
+
+    # Ensure the array is writeable by making a copy
+    event_indicator_array = df["event_indicator"].values.copy()
+    
     mock_inputs = {
         "initial_estimates": get_mock_initial_estimates(df),
         "target_times": [1.0, 2.0, 3.0, 10.0, 20.0],
         "event_times": df["event_time"].values,
-        "event_indicator": df["event_indicator"].values,
+        "event_indicator": event_indicator_array,
         "max_updates": 100,
     }
     return mock_inputs

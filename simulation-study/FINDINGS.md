@@ -909,10 +909,98 @@ construction serves both.
 
 **A methodological note on cost.** The scoped re-run to obtain this was estimated
 at ~519 CPU-hours across seven bootstrap cells. Checking the algebra first
-reduced it to zero for `basic`, and the remaining question -- `bca`, whose
-bias-correction needs the draw distribution and whose acceleration needs the
-influence curve -- was dropped as not worth ~90 CPU-hours once `basic` had
-answered the same question. Two changes make it cheap in future: every
-construction is now emitted under every filter, and the **raw draws are archived**
-beside each shard, so a new interval construction never requires re-running the
-fits again.
+reduced it to zero for `basic`, which is an exact reflection of the stored
+percentile bounds. The bias-corrected interval is not derivable that way -- its
+levels need the draw distribution, which stored bounds do not carry -- so it is
+now emitted by the run itself, beside `pct_*` and from the same draws, and it
+did cost a re-run; see 17. Two changes make any *further* construction cheap:
+every construction is emitted under every filter, and the **raw draws are
+archived** beside each shard, so a new interval construction never requires
+re-running the fits again.
+
+---
+
+## 17. The bias-corrected bootstrap corrects in the wrong direction under poor overlap
+
+**Status:** measured on the six re-run bootstrap cells (2026-09-13) and diagnosed
+from their archived draws. Decides the shipped construction: percentile stays
+the default, and bias-corrected is kept only as a computed-for-free comparison.
+
+The bias-corrected (BC) interval reads the percentile interval's draws at levels
+shifted by a median-bias term,
+
+    z0 = Phi^-1( share of draws below theta_hat ),   levels Phi(2 z0 +- 1.96)
+
+on the premise that the bootstrap distribution's offset from theta_hat mirrors
+theta_hat's offset from the truth.
+
+**What it measured** (cause-1 RD coverage, same replicates and same draws):
+
+| cell | tau | Wald | percentile | BC | width BC/pct |
+|---|---|---|---|---|---|
+| B_OV2 | 3.12 | 0.920 | **0.960** | 0.893 | 0.984 |
+| B_OV3 | 3.12 | 0.900 | **0.947** | 0.867 | 0.952 |
+| B_OV4 | 0.48 | 0.893 | **0.927** | 0.773 | 0.938 |
+| B_OV4 | 3.12 | 0.733 | **0.960** | 0.853 | 0.908 |
+| B_RA2 | 0.48 | 0.747 | 0.540 | 0.533 | 1.045 |
+| B_RA3 | 0.48 | 0.450 | 0.248 | 0.235 | 1.087 |
+| base  | 0.48 | 0.964 | 0.912 | 0.924 | 1.000 |
+
+Under positivity stress BC loses 0.04-0.15 at every tau of every level, while
+being narrower; over all 24 estimands per cell it is further from nominal than
+percentile on 96 % (OV2) and 100 % (OV3, OV4) of them. At the base condition and
+under rare events it ties percentile within MC error. It is never better than
+percentile beyond MC error, and at no cell and tau is it the best of the three
+bootstrap constructions.
+
+**Why: z0 is not a bias estimate here, it is a function of the replicate's own
+error.**
+
+| | base | OV2 | OV3 | OV4 |
+|---|---|---|---|---|
+| mean z0 | -0.02 | -0.00 | -0.02 | -0.03 |
+| sd z0 across replicates | 0.13 | 0.25 | 0.36 | 0.41 |
+| corr(z0, theta_hat - truth) | -0.03 | +0.42 | +0.53 | +0.64 |
+| BC moves away from truth, when \|error\| > 1.5 SD | 0.54 | 0.79 | 0.86 | 0.95 |
+
+There is no systematic bias to correct -- mean z0 is zero everywhere. What BC
+applies is the replicate-level scatter of z0, and under poor overlap that scatter
+tracks the error with the *wrong sign*: when theta_hat lands high, most draws
+fall below it, z0 is positive, and the interval is pushed further up. In the
+replicates that decide coverage BC moves away from the truth up to 95 % of the
+time, and the misses it adds split evenly left and right.
+
+The percentile interval profits from the same fact BC inverts. When theta_hat is
+off, the draws' median sits back toward the truth (corr -0.37 / -0.47 / -0.60 at
+OV2-4, all estimands), and fixed quantiles ride that pull. `basic` reflects it
+fully and loses most (16); BC reflects it partially -- its centre lies between
+the two, nearer percentile -- and loses in between, except at OV2, tau = 0.48,
+where it falls below `basic`. The likeliest cause of the pull-back is influential
+subjects under weak overlap, which a resample omits 37 % of the time; that is an
+interpretation, not a per-subject measurement, and within a cell the replicate's
+minimum propensity score barely modulates it.
+
+**At baseline** the z0 sd of 0.13 is the finite-B floor alone (0.126 at B = 100):
+BC adds pure resampling noise there, and gains and losses cancel.
+
+**Under rare events** BC is percentile for two reasons. At RA3, tau = 0.48, 55 %
+of replicates have 100 identical draws, so z0 is undefined, BC falls back, and
+every construction covers 0 on them. Where BC is defined it still does not help:
+at RA2, tau = 0.48, 0.708 against percentile's 0.717 and `basic`'s 0.965 on the
+same replicates. The rare-event failure is the draw distribution's skewed,
+boundary-bounded *shape*, which reflecting the interval corrects and shifting its
+quantile levels does not.
+
+**Why more resamples would not rescue it.** Under positivity stress the z0
+scatter is 2.0-3.2 times the finite-B floor and correlated with the error; that
+is a property of where theta_hat sits in its own bootstrap distribution, so more
+draws would estimate the wrong correction more precisely.
+
+**For the package.** `pytmle.bootstrap` computes both constructions from one run
+and exposes both from `predict()`; only the plotting functions pick one, and they
+default to percentile. That default is now a measurement rather than a convention.
+
+**A reproducibility check that came free.** The re-run used the original seeds
+and resampling code, so the rows that already existed had to come back unchanged.
+They did: every `wald` and `pct_all` row in the six cells, 23 976 rows,
+reproduced bit for bit. `bc_*` is the only new information in the re-run.

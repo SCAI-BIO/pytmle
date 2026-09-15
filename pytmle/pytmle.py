@@ -21,7 +21,12 @@ from .plotting import (
     plot_nuisance_weights,
     plot_propensity_score_calibration,
 )
-from .bootstrap import bootstrap_tmle_loop
+from .bootstrap import (
+    BOOTSTRAP_METHODS,
+    bootstrap_draws,
+    bootstrap_intervals,
+    warn_on_bc_fallback,
+)
 
 
 class PyTMLE:
@@ -107,6 +112,7 @@ class PyTMLE:
         self.key_0 = key_0
         self.verbose = verbose
         self._bootstrap_results = None
+        self._bootstrap_draws = None
         self._fitted = False
         self.has_converged = False
         self.step_num = 0
@@ -355,6 +361,7 @@ class PyTMLE:
         n_bootstrap: int = 100,
         n_jobs: int = 4,
         stratified_bootstrap: bool = False,
+        bootstrap_seed=None,
     ):
         assert (
             self._initial_estimates is not None
@@ -365,8 +372,9 @@ class PyTMLE:
             ), "Initial estimates have to be available before calling _update_estimates()."
         if self.verbose >= 2:
             print("Starting TMLE update loop...")
+        boot_draws = None
         if bootstrap:
-            self._bootstrap_results = bootstrap_tmle_loop(
+            boot_draws = bootstrap_draws(
                 self._initial_estimates,
                 event_times=self._event_times,
                 event_indicator=self._event_indicator,
@@ -375,6 +383,7 @@ class PyTMLE:
                 n_bootstrap=n_bootstrap,
                 n_jobs=n_jobs,
                 stratify_by_event=stratified_bootstrap,
+                seed=bootstrap_seed,
                 max_updates=max_updates,
                 min_nuisance=min_nuisance,
                 one_step_eps=one_step_eps,
@@ -402,6 +411,15 @@ class PyTMLE:
             mlflow_logging=self.mlflow_logging,
         )  # type: ignore
 
+        if boot_draws is not None:
+            self._bootstrap_draws = boot_draws
+            self._bootstrap_results = bootstrap_intervals(
+                boot_draws,
+                self._updated_estimates,
+                key_1=self.key_1,
+                key_0=self.key_0,
+            )
+
     def fit(
         self,
         cv_folds: int = 10,
@@ -414,6 +432,7 @@ class PyTMLE:
         n_bootstrap: int = 100,
         n_jobs: int = 4,
         stratified_bootstrap: bool = False,
+        bootstrap_seed=None,
         models=None,
         labtrans=None,
         propensity_score_models=None,
@@ -449,6 +468,9 @@ class PyTMLE:
             Number of parallel jobs for bootstrapping. Has no effect if bootstrap is False. Default is 4.
         stratified_bootstrap : bool, optional
             Whether to perform bootstrapping stratified by event indicator. Has no effect if bootstrap is False. Default is False.
+        bootstrap_seed : optional
+            Seed for the bootstrap resampling, making it reproducible. Has no effect if
+            bootstrap is False. Default is None, which draws a fresh entropy source.
         models : Optional, optional
             A list of models to use for the state learner. If None, use the default library. Default is None.
         labtrans : Optional, optional
@@ -487,6 +509,7 @@ class PyTMLE:
             n_bootstrap,
             n_jobs,
             stratified_bootstrap,
+            bootstrap_seed,
         )
         self._fitted = True
 
@@ -533,6 +556,7 @@ class PyTMLE:
         """
         if not self._fitted or self._updated_estimates is None:
             raise RuntimeError("Model has to be fitted before calling predict().")
+        boot = self._bootstrap_results
         if type == "risks":
             return get_counterfactual_risks(
                 self._updated_estimates,
@@ -540,7 +564,7 @@ class PyTMLE:
                 alpha=alpha,
                 key_1=self.key_1,
                 key_0=self.key_0,
-                bootstrap_results=self._bootstrap_results,
+                bootstrap_results=boot,
             )
         elif type == "rr":
             return ate_ratio(
@@ -549,7 +573,7 @@ class PyTMLE:
                 alpha=alpha,
                 key_1=self.key_1,
                 key_0=self.key_0,
-                bootstrap_results=self._bootstrap_results,
+                bootstrap_results=boot,
             )
         elif type == "rd":
             return ate_diff(
@@ -558,7 +582,7 @@ class PyTMLE:
                 alpha=alpha,
                 key_1=self.key_1,
                 key_0=self.key_0,
-                bootstrap_results=self._bootstrap_results,
+                bootstrap_results=boot,
             )
         else:
             raise ValueError(
@@ -574,6 +598,7 @@ class PyTMLE:
         color_1: Optional[str] = None,
         color_0: Optional[str] = None,
         use_bootstrap: bool = False,
+        bootstrap_method: str = "percentile",
         only_converged: bool = False,
     ) -> Optional[Tuple[Figure, np.ndarray]]:
         """
@@ -595,6 +620,11 @@ class PyTMLE:
             Color for the potential outcome for "untreated". Pick None for standard matplotlib colors. Default is None.
         use_bootstrap : bool, optional
             Whether to use the bootstrapped bounds instead of the theoretical bounds. Default is False.
+        bootstrap_method : str, optional
+            Which of the two stored bootstrap intervals to draw: "percentile" (default) or "bc"
+            (bias-corrected). Both are computed by every bootstrap run and both are returned by
+            predict(); this is the one place a choice is needed, because only one pair of bounds
+            can be drawn at a time. Has no effect if use_bootstrap is False.
         only_converged : bool, optional
             Whether to plot only combinations of intervention/event/target time for which the TMLE update has converged. Default is False.
 
@@ -603,10 +633,18 @@ class PyTMLE:
         Optional[Tuple[Figure, np.ndarray]]
             The figure and axes of the plot. Only returned if save_path is None.
         """
-        if use_bootstrap and self._bootstrap_results is None:
-            raise RuntimeError(
-                "Bootstrapping has to be performed before plotting with bootstrap estimates."
-            )
+        if use_bootstrap:
+            if self._bootstrap_results is None:
+                raise RuntimeError(
+                    "Bootstrapping has to be performed before plotting with bootstrap estimates."
+                )
+            if bootstrap_method not in BOOTSTRAP_METHODS:
+                raise ValueError(
+                    f"bootstrap_method must be one of {BOOTSTRAP_METHODS}, "
+                    f"got {bootstrap_method!r}."
+                )
+            if bootstrap_method == "bc":
+                warn_on_bc_fallback(self._bootstrap_results)
         if type == "risks":
             pred = self.predict(type=type, alpha=alpha)
             if g_comp:
@@ -621,6 +659,7 @@ class PyTMLE:
                 color_1=color_1,
                 color_0=color_0,
                 use_bootstrap=use_bootstrap,
+                bootstrap_method=bootstrap_method,
             )
         elif type in ("rr", "rd"):
             pred = self.predict(type=type, alpha=alpha)
@@ -635,6 +674,7 @@ class PyTMLE:
                 pred_g_comp if g_comp else None,
                 type=type,
                 use_bootstrap=use_bootstrap,
+                bootstrap_method=bootstrap_method,
             )
         else:
             raise ValueError(
@@ -769,6 +809,7 @@ class PyTMLE:
         time: Optional[float] = None,
         event: Optional[int] = None,
         use_bootstrap: bool = False,
+        bootstrap_method: str = "percentile",
         num_points_per_contour: int = 200,
         color_point_estimate: str = "blue",
         color_ci: str = "red",
@@ -788,6 +829,8 @@ class PyTMLE:
             Event at which to plot the E-value contours. If None, will plot for all target events. Default is None.
         use_bootstrap : bool, optional
             Whether to use the bootstrapped bounds instead of the theoretical bounds. Default is False.
+        bootstrap_method : str, optional
+            Method for bootstrap confidence intervals. Default is "percentile".
         num_points_per_contour : int, optional
             Number of points per contour. Default is 200.
         color_point_estimate : str, optional
@@ -829,6 +872,7 @@ class PyTMLE:
             color_benchmarking=color_benchmarking,
             plot_size=plot_size,
             use_bootstrap=use_bootstrap,
+            bootstrap_method=bootstrap_method,
         ):
             if save_dir_path is not None:
                 plt.savefig(

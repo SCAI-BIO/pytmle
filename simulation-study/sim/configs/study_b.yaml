@@ -17,8 +17,8 @@
 #   H1 overlap      SE/SD < 1, bias ~ 0, symmetric misses.
 #                   Bootstrap repairs the variance but not the bias.
 #   H2 rare events  SE/SD ~ 1, skewed boundary-bounded sampling distribution,
-#                   ASYMMETRIC misses. Percentile/BCa and the transformed
-#                   scales should help.
+#                   ASYMMETRIC misses. The bootstrap constructions and the
+#                   transformed scales should help.
 #
 # Censoring is H1's second channel: treatment positivity acts through pi,
 # censoring positivity through G(t-), which shrinks as tau grows.
@@ -36,8 +36,8 @@
 
 name: study_b
 description: >
-  Wald and three transformed-scale variants against percentile/basic/BCa
-  bootstrap intervals, under treatment-positivity, rare-event and
+  Wald and three transformed-scale variants against percentile and
+  bias-corrected bootstrap intervals, under treatment-positivity, rare-event and
   censoring-positivity stress, with min_nuisance as the remedy dial and a null
   condition for type-I error.
 
@@ -135,6 +135,15 @@ wald_cells:
 # Measured: a resample costs 1.0-1.1x a fit, and at RA3 all 15/15 probe
 # resamples hit mode 1 (loop budget exhausted), so the failure-mode
 # instrumentation is directly load-bearing there.
+#
+# Each cell emits BOTH interval constructions -- percentile and bias-corrected
+# -- from the same draws, so `pct_*` against `bc_*` is a comparison of
+# constructions alone, and neither needs its own run.
+#
+# No cell sets `b_grid`. The resample-count question -- "are B draws enough to
+# resolve a 2.5 % quantile" -- was dropped from the design: the ladder rows
+# themselves are free, but the B = 500 cell that anchored the question cost 23 %
+# of the run. `b_grid` remains a supported cell key if it is ever wanted back.
 boot_cells:
   # base control -- COMPLETED, 250 reps at B=100
   - {name: "BS12_n250_oracle", n: 250, arm: "oracle", reps: 250, n_bootstrap: 100,
@@ -144,13 +153,3 @@ boot_cells:
   - {name: "B_RA2_n250_correct", n: 250, arm: "correct", reps: 150, seed_key: "RA2_n250", axis: "rare", level: "RA2", target_times: [0.477676, 3.11961, 8.608445], params_override: {alpha: [-4.2, -2.6]}, n_bootstrap: 100}
   - {name: "B_OV4_n250_correct", n: 250, arm: "correct", reps: 150, seed_key: "OV4_n250", axis: "overlap", level: "OV4", target_times: [0.477676, 3.11961, 8.608445], params_override: {gamma: [3.0, -2.4, 1.8]}, n_bootstrap: 100}
   - {name: "B_RA3_n250_correct", n: 250, arm: "correct", reps: 150, seed_key: "RA3_n250", axis: "rare", level: "RA3", target_times: [0.477676, 3.11961, 8.608445], params_override: {alpha: [-5.0, -2.6]}, n_bootstrap: 100}
-
-  # B=500 at the BASE condition, not at a stressed one. The percentile
-  # shortfall actually measured (0.919 against Wald's 0.964) was here, so this
-  # tests "is the construction wrong, or are 100 draws too few for a 2.5 %
-  # quantile" on the exact cell where the effect was seen -- and at 2.24 s a
-  # resample it costs 3.9 h instead of the 38 h the same question would cost at
-  # OV3. Shares BS12's seed key, so it is the same 100 replicates.
-  - {name: "B_BASEb500_n250_oracle", n: 250, arm: "oracle", reps: 100,
-     n_bootstrap: 500, seed_key: "BS12_n250_shared", axis: "bootstrap_B",
-     level: "base@B500"}

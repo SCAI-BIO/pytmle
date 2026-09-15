@@ -19,8 +19,8 @@ which puts every procedure on one scale.
 
 Non-coverage is split into left- and right-tail misses, because the split
 identifies the cause: a symmetric shortfall points to variance underestimation,
-an asymmetric one to skewness -- which percentile and BCa intervals can correct
-and a symmetric Wald interval cannot.
+an asymmetric one to skewness -- which the percentile and bias-corrected
+intervals can correct and a symmetric Wald interval cannot.
 """
 
 from __future__ import annotations
@@ -41,25 +41,34 @@ __all__ = ["collect_b", "performance_b", "conditions_b", "breakpoints_b",
 
 Z = 1.959963984540054
 
+#: Two-sided level, halved.
+ALPHA_HALF = 0.025
+
 #: Order the procedures so the analytic intervals read first, then the
-#: convergence-filtered variants (PyTMLE's behaviour before the filter was
-#: removed), then the unfiltered default and the remaining diagnostics.
+#: unfiltered constructions -- the default comparison, percentile against
+#: bias-corrected -- then the filtered variants kept as diagnostics.
 PROC_ORDER = ["wald", "logwald", "logitwald", "atanhwald",
-              "pct_all", "basic_all", "bca_all",
-              "pct_convfilter", "basic_convfilter", "bca_convfilter",
-              "pct_dropmode1", "basic_dropmode1", "bca_dropmode1",
-              "pct_strict", "basic_strict", "bca_strict"]
+              "pct_all", "bc_all", "basic_all",
+              "pct_convfilter", "bc_convfilter", "basic_convfilter",
+              "pct_dropmode1", "bc_dropmode1", "basic_dropmode1",
+              "pct_strict", "bc_strict", "basic_strict"]
 
 #: Procedure labels renamed after the shards were written. See `collect_b`.
 #:
-#: `basic` and `bca` used to be emitted **only** under the convergence filter,
-#: so a stored `basic` row is a `basic_convfilter` row. Mapping them under their
-#: true names keeps the old shards readable and stops them being mistaken for
-#: the unfiltered constructions, which did not exist until the filter was
-#: removed and every construction was emitted under every filter.
+#: `basic` used to be emitted **only** under the convergence filter, so a stored
+#: `basic` row is a `basic_convfilter` row. Mapping it under its true name keeps
+#: the old shards readable and stops it being mistaken for the unfiltered
+#: construction, which did not exist until the filter was removed and every
+#: construction was emitted under every filter.
 _LEGACY_PROCEDURES = {"pct_shipped": "pct_convfilter",
-                      "basic": "basic_convfilter",
-                      "bca": "bca_convfilter"}
+                      "basic": "basic_convfilter"}
+
+#: Procedure labels dropped on load: bare `bca` rows from runs that predate the
+#: removal of the accelerated construction. They are not renamed to
+#: `bca_convfilter` and carried forward, because BCa is no longer a procedure
+#: this study offers -- and those rows could never be compared with `pct_all`
+#: anyway, having been emitted under the convergence filter alone.
+_RETIRED_PROCEDURES = ("bca",)
 
 #: Procedures built from the stored EIC standard error rather than from draws.
 #: For these the implied SE *is* the stored SE; for the bootstrap procedures the
@@ -90,12 +99,14 @@ def _derive_basic(out: pd.DataFrame) -> pd.DataFrame:
 
     This matters because the two are **identical in width** and differ only in
     location, which makes the pair a clean read on whether the bootstrap
-    distribution is offset from the point estimate. It also means the earlier
-    limitation -- `basic` and `bca` having been emitted under the convergence
-    filter alone, so their showing measured the filter -- is now lifted for
-    `basic` at no cost. `bca` is not derivable this way: its bias-correction
-    needs the draw distribution and its acceleration the influence curve, and
-    neither was stored.
+    distribution is offset from the point estimate. It is also why the study
+    does not resample for `basic` at all: deriving it here costs nothing and
+    lifts the old limitation, where `basic` was emitted under the convergence
+    filter alone and its showing therefore measured the filter.
+
+    `bc_*` is *not* derivable this way -- its levels need the draw distribution,
+    which stored bounds do not carry -- so the run emits it directly, from the
+    same draws as `pct_*`.
 
     Rows already present are never overwritten, so a run that emitted
     `basic_*` natively passes through unchanged.
@@ -157,6 +168,14 @@ def collect_b(output_dir: Path | str, cells: Optional[Sequence[str]] = None) -> 
     # than re-run: the resamples are unchanged, only their name is.
     if "procedure" in out:
         out["procedure"] = out["procedure"].replace(_LEGACY_PROCEDURES)
+        retired = out["procedure"].isin(_RETIRED_PROCEDURES)
+        if retired.any():
+            warnings.warn(
+                f"dropping {int(retired.sum())} rows of retired procedures "
+                f"{sorted(out.loc[retired, 'procedure'].unique())}. These cells "
+                f"predate the removal of the accelerated bootstrap; re-run them "
+                f"to get `bc_*` on the same draws as `pct_*`.", RuntimeWarning)
+            out = out[~retired]
     out = _derive_basic(out)
 
     # A replicate must appear in exactly one shard. Duplicates would inflate every
@@ -311,7 +330,16 @@ def performance_b(d: pd.DataFrame, config: str = "base",
             })
     out = pd.DataFrame(rows)
     if len(out):
-        out["procedure"] = pd.Categorical(out["procedure"], PROC_ORDER, ordered=True)
+        # Any procedure missing from `PROC_ORDER` would be silently coerced to
+        # NaN here -- the categories are a whitelist, not a sort key. That is how
+        # the `{construction}_all@B{b}` rows of the resample-count ladder were
+        # computed, written to the shards, and then erased from every table:
+        # 3240 rows per shard, present on disk, absent from the report. Unknown
+        # labels are appended instead, so a new procedure sorts last rather than
+        # vanishing.
+        seen = [str(p) for p in pd.unique(out["procedure"].dropna())]
+        cats = PROC_ORDER + sorted(p for p in seen if p not in PROC_ORDER)
+        out["procedure"] = pd.Categorical(out["procedure"], cats, ordered=True)
         out = out.sort_values(["cell", "type", "event", "time", "procedure"])
     return out.reset_index(drop=True)
 

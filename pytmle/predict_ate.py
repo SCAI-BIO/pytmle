@@ -1,9 +1,68 @@
-from typing import Dict, Optional, Tuple
+from typing import Dict, Optional, Sequence, Tuple
 import numpy as np
 import pandas as pd
 
 from .estimates import UpdatedEstimates
 from scipy.stats import norm
+
+
+#: The interval constructions the bootstrap keeps, and the suffix that labels
+#: each one's columns in a prediction table. Defined here rather than in
+#: `bootstrap` because `bootstrap` imports this module, not the other way round;
+#: `bootstrap.BOOTSTRAP_METHODS` is derived from these keys.
+BOOTSTRAP_SUFFIXES = {"percentile": "pct", "bc": "bc"}
+
+
+def _merge_bootstrap(
+    pred: pd.DataFrame,
+    bootstrap_results: Optional[pd.DataFrame],
+    type: str,
+    on: Sequence[str],
+) -> pd.DataFrame:
+    """Attach **both** bootstrap constructions to a prediction table.
+
+    `bootstrap_results` is long: one row per estimand *and per construction*,
+    tagged by `bootstrap_method`. Both are always present, because both are
+    quantiles of the same draws and the second one is free -- so a prediction
+    carries the percentile and the bias-corrected interval side by side and
+    comparing them never needs a second bootstrap. Nothing here chooses between
+    them; that happens only when plotting, where one pair of bounds has to be
+    picked because only one can be drawn.
+
+    The bounds land as ``CI_{lower,upper}_bootstrap_pct`` and
+    ``..._bootstrap_bc``, leaving the analytic ``CI_lower``/``CI_upper`` alone.
+    `n_draws` is a property of the resampling rather than of a construction, so
+    it is merged once.
+    """
+    if bootstrap_results is None or not len(bootstrap_results):
+        return pred
+    if "bootstrap_method" not in bootstrap_results.columns:
+        raise KeyError(
+            "These bootstrap results carry no 'bootstrap_method' column; they "
+            "were built by an older version that stored a single construction. "
+            "Re-run the bootstrap."
+        )
+    rows = bootstrap_results[bootstrap_results["type"] == type]
+    on = list(on)
+    for method, suffix in BOOTSTRAP_SUFFIXES.items():
+        block = rows[rows["bootstrap_method"] == method]
+        rename = {
+            "mean_bootstrap": f"mean_bootstrap_{suffix}",
+            "CI_lower": f"CI_lower_bootstrap_{suffix}",
+            "CI_upper": f"CI_upper_bootstrap_{suffix}",
+            "ci_method": f"ci_method_bootstrap_{suffix}",
+        }
+        if method == "percentile":
+            # a property of the resampling, not of the construction
+            rename["n_draws"] = "n_draws_bootstrap"
+        # `bc_z0` is the bias correction itself, so it needs no suffix to say
+        # which construction it belongs to.
+        extra = ["bc_z0"] if method == "bc" else []
+        keep = on + [c for c in list(rename) + extra if c in block.columns]
+        pred = pred.merge(
+            block[keep].rename(columns=rename), on=on, how="left"
+        )
+    return pred
 
 
 def get_counterfactual_risks(
@@ -48,15 +107,9 @@ def get_counterfactual_risks(
         pred_risk["CI_lower"] = np.nan
         pred_risk["CI_upper"] = np.nan
 
-    if bootstrap_results is not None:
-        pred_risk = pred_risk.merge(
-            bootstrap_results[bootstrap_results["type"] == "risks"].drop(
-                columns=["type"]
-            ),
-            on=["Event", "Time", "Group"],
-            suffixes=("", "_bootstrap"),
-            how="left",
-        )
+    pred_risk = _merge_bootstrap(
+        pred_risk, bootstrap_results, "risks", ["Event", "Time", "Group"]
+    )
 
     return pred_risk
 
@@ -174,24 +227,32 @@ def ate_ratio(
         pred_ratios["E_value CI"] = evalues_ci
         pred_ratios["E_value CI limit"] = evalues_ci_limit
         if bootstrap_results is not None:
-            pred_ratios = pred_ratios.merge(
-                bootstrap_results[bootstrap_results["type"] == "rr"].drop(
-                    columns=["Group", "type"]
-                ),
-                on=["Event", "Time"],
-                suffixes=("", "_bootstrap"),
-                how="left",
+            # CIs from both constructions, percentile and bias-corrected
+            pred_ratios = _merge_bootstrap(
+                pred_ratios, bootstrap_results, "rr", ["Event", "Time"]
             )
-            _, evalues_ci_bs, evalues_ci_limit_bs = get_evalues_rr(
+            _, evalues_ci_bs_pct, evalues_ci_limit_bs_pct = get_evalues_rr(
                 pred_ratios["Pt Est"],
-                pred_ratios["CI_lower_bootstrap"],
-                pred_ratios["CI_upper_bootstrap"],
+                pred_ratios["CI_lower_bootstrap_pct"],
+                pred_ratios["CI_upper_bootstrap_pct"],
             )
-            pred_ratios["E_value CI (bootstrap)"] = evalues_ci_bs
-            pred_ratios["E_value CI limit (bootstrap)"] = evalues_ci_limit_bs
+
+            pred_ratios["E_value CI (bootstrap, percentile)"] = evalues_ci_bs_pct
+            pred_ratios["E_value CI limit (bootstrap, percentile)"] = evalues_ci_limit_bs_pct
+
+            _, evalues_ci_bs_bc, evalues_ci_limit_bs_bc = get_evalues_rr(
+                            pred_ratios["Pt Est"],
+                            pred_ratios["CI_lower_bootstrap_bc"],
+                            pred_ratios["CI_upper_bootstrap_bc"],
+                        )
+            
+            pred_ratios["E_value CI (bootstrap, bc)"] = evalues_ci_bs_bc
+            pred_ratios["E_value CI limit (bootstrap, bc)"] = evalues_ci_limit_bs_bc
         else:
-            pred_ratios["E_value CI (bootstrap)"] = np.nan
-            pred_ratios["E_value CI limit (bootstrap)"] = np.nan
+            pred_ratios["E_value CI (bootstrap, percentile)"] = np.nan
+            pred_ratios["E_value CI limit (bootstrap, percentile)"] = np.nan
+            pred_ratios["E_value CI (bootstrap, bc)"] = np.nan
+            pred_ratios["E_value CI limit (bootstrap, bc)"] = np.nan
     else:
         pred_ratios["SE"] = np.nan
         pred_ratios["Converged"] = np.nan
@@ -202,8 +263,10 @@ def ate_ratio(
         pred_ratios["E_value"] = evalues
         pred_ratios["E_value CI"] = np.nan
         pred_ratios["E_value CI limit"] = np.nan
-        pred_ratios["E_value CI (bootstrap)"] = np.nan
-        pred_ratios["E_value CI limit (bootstrap)"] = np.nan
+        pred_ratios["E_value CI (bootstrap, percentile)"] = np.nan
+        pred_ratios["E_value CI limit (bootstrap, percentile)"] = np.nan
+        pred_ratios["E_value CI (bootstrap, bc)"] = np.nan
+        pred_ratios["E_value CI limit (bootstrap, bc)"] = np.nan
 
     return pred_ratios
 
@@ -275,7 +338,14 @@ def ate_diff(
     pred_diffs["E_value"] = np.nan
     pred_diffs["E_value CI"] = np.nan
     pred_diffs["E_value CI limit"] = np.nan
-    pred_diffs["E_value CI (bootstrap)"] = np.nan
-    pred_diffs["E_value CI limit (bootstrap)"] = np.nan
+    pred_diffs["E_value CI (bootstrap, percentile)"] = np.nan
+    pred_diffs["E_value CI limit (bootstrap, percentile)"] = np.nan
+    pred_diffs["E_value CI (bootstrap, bc)"] = np.nan
+    pred_diffs["E_value CI limit (bootstrap, bc)"] = np.nan
+
+    # CIs from both constructions, percentile and bias-corrected
+    pred_diffs = _merge_bootstrap(
+        pred_diffs, bootstrap_results, "rd", ["Event", "Time"]
+    )
 
     return pred_diffs

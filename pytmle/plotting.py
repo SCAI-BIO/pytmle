@@ -29,13 +29,26 @@ def plot_risks(
     color_1: Optional[str] = None,
     color_0: Optional[str] = None,
     use_bootstrap: bool = False,
+    bootstrap_method: str = "percentile"
 ) -> tuple:
     target_events = np.unique(tmle_est["Event"])
     fig, axes = initialize_subplots(target_events)
 
-    mean_key = "mean_bootstrap" if use_bootstrap else "Pt Est"
-    ci_lower_key = "CI_lower_bootstrap" if use_bootstrap else "CI_lower"
-    ci_upper_key = "CI_upper_bootstrap" if use_bootstrap else "CI_upper"
+    if use_bootstrap:
+        if bootstrap_method == "percentile":
+            mean_key = "mean_bootstrap_pct"
+            ci_lower_key = "CI_lower_bootstrap_pct"
+            ci_upper_key = "CI_upper_bootstrap_pct"
+        elif bootstrap_method == "bc":
+            mean_key = "mean_bootstrap_bc"
+            ci_lower_key = "CI_lower_bootstrap_bc"
+            ci_upper_key = "CI_upper_bootstrap_bc"
+        else:
+            raise ValueError("Unsupported bootstrap method. Choose 'percentile' or 'bc'.")
+    else:
+        mean_key = "Pt Est"
+        ci_lower_key = "CI_lower"
+        ci_upper_key = "CI_upper"
 
     fig.suptitle("Risk Estimates Over Time", fontsize=16)
 
@@ -136,13 +149,26 @@ def plot_ate(
     g_comp_est: Optional[pd.DataFrame] = None,
     type="rr",
     use_bootstrap: bool = False,
+    bootstrap_method: str = "percentile",
 ) -> tuple:
     target_events = tmle_est["Event"].unique()
     fig, axes = initialize_subplots(target_events)
 
-    mean_key = "mean_bootstrap" if use_bootstrap else "Pt Est"
-    ci_lower_key = "CI_lower_bootstrap" if use_bootstrap else "CI_lower"
-    ci_upper_key = "CI_upper_bootstrap" if use_bootstrap else "CI_upper"
+    if use_bootstrap:
+        if bootstrap_method == "percentile":
+            mean_key = "mean_bootstrap_pct"
+            ci_lower_key = "CI_lower_bootstrap_pct"
+            ci_upper_key = "CI_upper_bootstrap_pct"
+        elif bootstrap_method == "bc":
+            mean_key = "mean_bootstrap_bc"
+            ci_lower_key = "CI_lower_bootstrap_bc"
+            ci_upper_key = "CI_upper_bootstrap_bc"
+        else:
+            raise ValueError("Unsupported bootstrap method. Choose 'percentile' or 'bc'.")
+    else:
+        mean_key = "Pt Est"
+        ci_lower_key = "CI_lower"
+        ci_upper_key = "CI_upper"
 
     if type == "rr" or type == "rd":
         fig.suptitle("Average Treatment Effect (ATE) Estimates Over Time", fontsize=16)

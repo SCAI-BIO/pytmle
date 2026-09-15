@@ -47,10 +47,23 @@ shards. Divide by your worker count for wall time, but not below ~8 workers'
 worth — throughput ceilings there (see the `--n-jobs` note below), so 8 workers
 puts Study A at roughly 8 hours and Study B at **two to four days**.
 
-Study B is the long one, and two thirds of it is bootstrap: the seven cells with
-`n_bootstrap > 0` account for **518 of the 789** CPU-hours. Dropping them from the
-config leaves a ~270 CPU-hour run that still answers the coverage question on
+Study B is the long one, and most of it is bootstrap: the six cells with
+`n_bootstrap > 0` account for **~400 of the ~670** CPU-hours. Dropping them from
+the config leaves a ~270 CPU-hour run that still answers the coverage question on
 every stress axis — only the Wald-versus-bootstrap comparison is lost.
+
+Those six cells produce **both** bootstrap interval constructions in one run:
+`pct_*` (percentile) and `bc_*` (bias-corrected), from identical draws and under
+each of the four convergence filters. The second construction costs no extra
+resampling — both are quantiles of draws already paid for — so there is no
+configuration in which you get one and have to re-run for the other. The
+reverse-percentile interval (`basic_*`) is not resampled for at all; it is an
+exact reflection of `pct_*` and the report derives it on load.
+
+**Wall time is set by physical cores, not by `--n-jobs`.** On a 12-physical-core
+box (20 logical), 20 workers inflate each replicate about 2.3x, so throughput
+gains only ~10 % over 8 workers. Budget from CPU-hours ÷ physical cores, not ÷
+`--n-jobs`: the six bootstrap cells take roughly **2.5–3 days** there.
 
 Study C's disk figure is the exported per-replicate nuisance arrays, which are
 `(n × K)` doubles and dominate everything else. They scale as O(n²) — 5 MB per

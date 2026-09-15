@@ -23,16 +23,23 @@ Procedures, per (estimand, event, tau, group):
                   finding is "the interval is on the wrong scale", not "the
                   asymptotics fail" -- a one-line fix rather than a bootstrap.
     pct_*         percentile
-    basic_*       reverse-percentile
-    bca_*         bias-corrected and accelerated
+    bc_*          bias-corrected
 
-Each of the three constructions is emitted under each of four filtering rules, so
-the procedure label is `{construction}_{filter}` -- `pct_all`, `bca_all`,
-`basic_convfilter`, and so on. They come from one call to
-`intervals_from_draws`, so the full cross costs nothing at run time, and it is
-the only way to read construction and filter apart: `basic` and `bca` were once
-emitted under the convergence filter alone, which made their weak showing a
-measurement of the filter rather than of the construction.
+One bootstrap run yields **both** constructions. They are quantiles of the same
+draws -- `intervals_from_draws` returns them together -- so the second costs
+nothing beyond the first, and reading them side by side never requires a second
+run. There is no accelerated variant; `pytmle.bootstrap` does not offer one
+either, and `bootstrap_ci.intervals_from_draws` records why.
+
+Each construction is emitted under each of four filtering rules, so the
+procedure label is `{construction}_{filter}` -- `pct_all`, `bc_all`,
+`pct_convfilter`, and so on. The full cross is what reads construction and
+filter apart, and it is free for the same reason.
+
+The reverse-percentile (`basic_*`) interval is *not* resampled for. It is an
+exact reflection of the percentile interval about the point estimate, so the
+report derives it from the stored bounds instead -- same numbers, no draws. See
+`study_b_report._derive_basic`.
 
 The four filtering rules exist to attribute coverage loss to the bootstrap's
 failure modes. Draws are tagged rather than filtered, so the interval can be
@@ -81,7 +88,7 @@ FILTERS = [("pct_all", False, False), ("pct_convfilter", False, True),
 _CELL_KEYS = {
     "name", "n", "arm", "reps", "config", "n_bootstrap", "min_nuisance",
     "max_updates", "tau_quantiles", "target_times", "params_override",
-    "q_arm", "pi_arm", "g_arm", "seed_key", "axis", "level",
+    "q_arm", "pi_arm", "g_arm", "seed_key", "axis", "level", "b_grid",
 }
 
 #: DGPParams fields that must be numpy arrays; YAML gives lists.
@@ -171,6 +178,19 @@ class BCell:
     axis: str = "base"
     level: str = "base"
 
+    #: Resample counts to *also* report intervals at, by truncating the stored
+    #: draws to the first `b` resamples.
+    #:
+    #: Resamples are i.i.d., so the first `b` of `n_bootstrap` are a valid `b`
+    #: bootstrap. That makes the B-ladder a paired contrast on identical data,
+    #: identical fits and nested draw sets -- and costs one run rather than
+    #: three, since a B = 500 cell already contains its own B = 100 and B = 200.
+    #:
+    #: Emitted as `{construction}_all@B{b}`, unfiltered only: the per-target
+    #: `Converged` filter has been removed from `pytmle/bootstrap.py`, and mixing
+    #: the filter axis into the B axis would confound the two.
+    b_grid: Optional[Sequence[int]] = None
+
     def spec(self) -> Spec:
         return Spec(Q=self.q_arm or self.arm,
                     pi=self.pi_arm or self.arm,
@@ -188,7 +208,7 @@ class BCell:
 
 
 def _main_fit(sm, ie, taus, events, min_nuisance, max_updates) -> pd.DataFrame:
-    """Point estimates, EIC standard errors, and the IC itself (for BCa)."""
+    """Point estimates and EIC standard errors from the main (unresampled) fit."""
     from pytmle import PyTMLE
 
     model = PyTMLE(sm.df, target_times=list(taus), initial_estimates=ie,
@@ -211,27 +231,6 @@ def _main_fit(sm, ie, taus, events, min_nuisance, max_updates) -> pd.DataFrame:
         rows.append(p)
     out = pd.concat(rows, ignore_index=True) if rows else pd.DataFrame()
     return out, model
-
-
-def _ic_for_bca(model, key_1: int = 1, key_0: int = 0) -> Dict:
-    """Per-subject influence values, keyed by (type, Event, Time, Group).
-
-    BCa's acceleration is a jackknife over observations in the textbook, which
-    would cost `n` extra second-stage fits per replicate. For a smooth functional
-    the jackknife influence values are asymptotically the influence function,
-    which the fit has already produced, so it is taken from there instead.
-    """
-    out = {}
-    try:
-        ue = model._updated_estimates
-        ic1 = ue[key_1].ic.set_index(["ID", "Event", "Time"])["IC"]
-        ic0 = ue[key_0].ic.set_index(["ID", "Event", "Time"])["IC"]
-        d = (ic1 - ic0).reset_index()
-        for (ev, t), g in d.groupby(["Event", "Time"]):
-            out[("rd", int(ev), float(t), -1)] = g["IC"].to_numpy()
-    except Exception:
-        pass
-    return out
 
 
 def _condition_diagnostics(sm, ie, nd, p, taus, min_nuisance) -> Dict:
@@ -297,9 +296,10 @@ def _one_rep_b(args) -> tuple:
     first element feeds the report; the second is archived beside the shard.
     """
     cell, taus, seed_state, rep = args
-    from .bootstrap_ci import (atanh_wald_interval, bootstrap_draws,
-                               intervals_from_draws, log_wald_interval,
-                               logit_wald_interval, wald_interval)
+    from .bootstrap_ci import (CONSTRUCTIONS, atanh_wald_interval,
+                               bootstrap_draws, intervals_from_draws,
+                               log_wald_interval, logit_wald_interval,
+                               wald_interval)
 
     rng = np.random.default_rng(seed_state)
     p = cell.dgp_params()
@@ -376,7 +376,6 @@ def _one_rep_b(args) -> tuple:
                     n_usable=bd.n_usable, first_error=bd.first_error,
                     boot_seconds=time.time() - tb,
                     median_steps=float(np.median(bd.steps)) if bd.steps else np.nan)
-        ics = _ic_for_bca(model)
         d = bd.draws
         if len(d):
             draws_out = d.copy()
@@ -398,20 +397,35 @@ def _one_rep_b(args) -> tuple:
                     if drop2:
                         sub = sub[sub["Converged"]]
                     iv = intervals_from_draws(sub["Pt Est"].to_numpy(), point,
-                                              ALPHA, ics.get(key))
+                                              ALPHA)
                     eff = int(sub["boot"].nunique())
-                    # All three constructions under *every* filter.
+                    # Both constructions under *every* filter.
                     # `intervals_from_draws` computes them together, so this is
-                    # free at run time -- and previously `basic` and `bca` were
-                    # emitted only under the convergence filter, which confounded
-                    # the interval construction with the filter. Their weak
-                    # showing at OV4 (0.493 and 0.708 against the percentile's
-                    # 0.960) measured the filter, not the construction.
+                    # free at run time -- and it is the only way to keep the
+                    # construction from being confounded with the filter, which
+                    # is what happened when the non-percentile constructions
+                    # were emitted under the convergence filter alone.
                     suffix = label[len("pct_"):]
-                    for kind in ("percentile", "basic", "bca"):
+                    for kind in CONSTRUCTIONS:
                         name = ("pct" if kind == "percentile" else kind)
                         _emit(f"{name}_{suffix}", typ, ev, tt, grp, point,
                               *iv[kind], eff_b=eff)
+
+                # The B ladder, on the unfiltered draws. `boot` is the resample
+                # index, so `boot < b` takes the first `b` of them -- a valid
+                # `b`-resample bootstrap, nested inside the larger one, which
+                # makes the comparison across B paired to the draw.
+                for b in (cell.b_grid or []):
+                    sub = g[g["boot"] < int(b)]
+                    if sub.empty:
+                        continue
+                    ivb = intervals_from_draws(sub["Pt Est"].to_numpy(), point,
+                                               ALPHA)
+                    eb = int(sub["boot"].nunique())
+                    for kind in CONSTRUCTIONS:
+                        nm = ("pct" if kind == "percentile" else kind)
+                        _emit(f"{nm}_all@B{int(b)}", typ, ev, tt, grp, point,
+                              *ivb[kind], eff_b=eb)
 
     out = pd.DataFrame(rows)
     for k, v in diag.items():
@@ -500,6 +514,7 @@ def run_cell_b(cell: BCell, output_dir: Path, master_seed: int = 20250301,
          "n_bootstrap": cell.n_bootstrap, "config": cell.config,
          "target_times": taus, "min_nuisance": cell.min_nuisance,
          "max_updates": cell.max_updates,
+         "b_grid": list(cell.b_grid) if cell.b_grid else None,
          "spec": cell.spec().__dict__,
          "seed_key": cell.seed_key or cell.name,
          "params_override": {k: (v.tolist() if hasattr(v, "tolist") else v)
@@ -558,7 +573,8 @@ def run_cell_b(cell: BCell, output_dir: Path, master_seed: int = 20250301,
 
 
 def progress_b(config_path: Path | str, output_dir: Path | str,
-               only: Optional[Sequence[str]] = None) -> pd.DataFrame:
+               only: Optional[Sequence[str]] = None, n_jobs: int = 8,
+               chunk_wald: int = 25) -> pd.DataFrame:
     """Per-cell completion, for checking where an interrupted run got to.
 
     `only` takes the same cell names as `run_study_b`, so `--progress --only X`
@@ -588,8 +604,14 @@ def progress_b(config_path: Path | str, output_dir: Path | str,
                 if d.exists() and any(d.glob("shard_*.parquet")):
                     step = _LEGACY_CHUNK
                 else:
+                    # A cell that has not started yet will be chunked by
+                    # `_chunk_for`, which sizes a bootstrap cell to the worker
+                    # count. Guessing a different number here does not change
+                    # what the run does -- it only misreports how much of it is
+                    # left, which over a multi-day run is the number being read.
                     B = c.get("n_bootstrap", 0)
-                    step = 2 if B >= 500 else (5 if B else 25)
+                    step = (max(1, min(n_jobs, int(c["reps"]))) if B
+                            else chunk_wald)
             total = -(-int(c["reps"]) // int(step))
             got = sum(1 for s in d.glob("shard_*.parquet") if _shard_is_intact(s)) \
                 if d.exists() else 0
@@ -634,7 +656,8 @@ def run_study_b(config_path: Path | str, output_dir: Path | str,
                 params_override=_coerce_override(c.get("params_override", {})),
                 q_arm=c.get("q_arm"), pi_arm=c.get("pi_arm"), g_arm=c.get("g_arm"),
                 seed_key=c.get("seed_key"),
-                axis=c.get("axis", "base"), level=c.get("level", "base")))
+                axis=c.get("axis", "base"), level=c.get("level", "base"),
+                b_grid=pick("b_grid", None)))
     if only:
         cells = [c for c in cells if c.name in set(only)]
 
@@ -670,7 +693,8 @@ def main(argv=None) -> int:
                          "interrupted run to see where it got to")
     a = ap.parse_args(argv)
     if a.progress:
-        df = progress_b(a.config, a.output_dir, only=a.only)
+        df = progress_b(a.config, a.output_dir, only=a.only,
+                        n_jobs=a.n_jobs)
         done = int((df["pct"] >= 100).sum())
         print(df.to_string(index=False))
         print(f"\n{done}/{len(df)} cells complete; "

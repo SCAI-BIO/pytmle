@@ -33,7 +33,8 @@ import pandas as pd
 
 from .plots import GRID, INK, INK2, MUTED, SURFACE, _style, _titles
 
-__all__ = ["plot_axis", "plot_min_nuisance", "plot_procedures", "make_all_b"]
+__all__ = ["plot_axis", "plot_min_nuisance", "plot_procedures",
+           "plot_b_ladder", "make_all_b"]
 
 #: Sample size is the series dimension in the dose-response figures, so the ramp
 #: is ordinal: darker = more data. Slots from the validated categorical set.
@@ -50,13 +51,13 @@ PROC_COLOUR = {
     # Hue carries the construction, lightness the filter: the comparison the
     # procedures figure exists to make is construction against construction, and
     # the filter is the nuisance dimension.
-    "pct_all": "#eb6834", "basic_all": "#1baf7a", "bca_all": "#e87ba4",
-    "pct_convfilter": "#8a8985", "basic_convfilter": "#7fd3b4",
-    "bca_convfilter": "#f2b6cc",
-    "pct_dropmode1": "#6f5bb0", "basic_dropmode1": "#0e7a55",
-    "bca_dropmode1": "#b8557c",
-    "pct_strict": "#3d3c3a", "basic_strict": "#0a5c40",
-    "bca_strict": "#8c3f5e",
+    "pct_all": "#eb6834", "bc_all": "#7b5bd6", "basic_all": "#1baf7a",
+    "pct_convfilter": "#8a8985", "bc_convfilter": "#b3a3e6",
+    "basic_convfilter": "#7fd3b4",
+    "pct_dropmode1": "#f2a07c", "bc_dropmode1": "#4b2f9e",
+    "basic_dropmode1": "#0e7a55",
+    "pct_strict": "#3d3c3a", "bc_strict": "#2b1a63",
+    "basic_strict": "#0a5c40",
 }
 
 AXIS_TITLE = {
@@ -143,9 +144,33 @@ def _spanning_series(d: pd.DataFrame, x: str = "level") -> tuple:
 BOOT_PROC = "pct_all"
 BOOT_COLOUR = PROC_COLOUR[BOOT_PROC]
 
+#: The default single-series marker: the unfiltered percentile interval.
+BOOT_SERIES_DEFAULT = (
+    (BOOT_PROC, "*", 11, BOOT_COLOUR, "bootstrap (percentile, B = 100)"),
+)
+
+#: The construction comparison: percentile against bias-corrected.
+#:
+#: **Both are unfiltered, and that is the point.** One bootstrap run emits every
+#: construction under every filter, so these two are quantiles of *identical*
+#: draws from identical fits and the gap between the markers is the interval
+#: construction and nothing else.
+#:
+#: This was not always available. The earlier variant of this figure had to draw
+#: both at the convergence filter, because the non-percentile constructions were
+#: then emitted under that filter alone -- which made the gap a measurement of
+#: the filter rather than of the construction. Cells run before that was fixed
+#: carry no `bc_all` and simply do not get this figure.
+BOOT_SERIES_BC = (
+    ("pct_all", "*", 11, PROC_COLOUR["pct_all"],
+     "bootstrap: percentile"),
+    ("bc_all", "D", 6.5, PROC_COLOUR["bc_all"],
+     "bootstrap: bias-corrected"),
+)
+
 
 def _boot_markers(ax, boot: pd.DataFrame, xs: Sequence[str], tt: float,
-                  value: str) -> bool:
+                  value: str, series: Sequence[tuple] = BOOT_SERIES_DEFAULT) -> bool:
     """Mark the bootstrap result wherever one exists, beside its paired Wald.
 
     A bootstrap cell runs 150 replicates against the Wald ladder's 1000, so a
@@ -161,27 +186,43 @@ def _boot_markers(ax, boot: pd.DataFrame, xs: Sequence[str], tt: float,
     """
     xi = {lv: i for i, lv in enumerate(xs)}
     drawn = False
+    # More than one bootstrap series at the same level would overplot exactly,
+    # so they are nudged apart along x. The offsets are symmetric about the
+    # level's tick, small enough that the pair still reads as belonging to that
+    # level rather than to the gap between two.
+    n_ser = len(series)
+    offs = ([0.0] if n_ser == 1
+            else np.linspace(-0.11 * (n_ser - 1), 0.11 * (n_ser - 1), n_ser))
     for lv, g in boot[boot["time"] == tt].groupby("level"):
         if lv not in xi:
             continue
         w = g[g["procedure"] == "wald"]
-        b = g[g["procedure"] == BOOT_PROC]
-        if b.empty or value not in b:
-            continue
-        x = xi[lv]
-        yb = float(b.iloc[0][value])
-        if not np.isfinite(yb):
+        x0 = xi[lv]
+        ys = []
+        for (proc, mk, ms, col, _lab), off in zip(series, offs):
+            b = g[g["procedure"] == proc]
+            if b.empty or value not in b:
+                continue
+            yb = float(b.iloc[0][value])
+            if not np.isfinite(yb):
+                continue
+            ys.append((x0 + off, yb, mk, ms, col))
+        if not ys:
             continue
         if not w.empty and np.isfinite(float(w.iloc[0][value])):
             yw = float(w.iloc[0][value])
-            ax.plot([x, x], [yw, yb], color=INK2, linewidth=0.9, alpha=0.55,
-                    zorder=4, solid_capstyle="butt")
-            ax.plot([x], [yw], marker="o", markersize=5.5, markerfacecolor="none",
+            # One connector per series: its length is that construction's paired
+            # difference from the Wald interval on the same replicates.
+            for (x, yb, _mk, _ms, _c) in ys:
+                ax.plot([x, x], [yw, yb], color=INK2, linewidth=0.9, alpha=0.45,
+                        zorder=4, solid_capstyle="butt")
+            ax.plot([x0], [yw], marker="o", markersize=5.5, markerfacecolor="none",
                     markeredgecolor=INK2, markeredgewidth=1.1, linestyle="none",
                     zorder=5, label="_paired Wald (same reps)")
-        ax.plot([x], [yb], marker="*", markersize=11, color=BOOT_COLOUR,
-                markeredgecolor=SURFACE, markeredgewidth=0.6, linestyle="none",
-                zorder=6, label="_bootstrap")
+        for (x, yb, mk, ms, col) in ys:
+            ax.plot([x], [yb], marker=mk, markersize=ms, color=col,
+                    markeredgecolor=SURFACE, markeredgewidth=0.6, linestyle="none",
+                    zorder=6, label="_bootstrap")
         drawn = True
     return drawn
 
@@ -217,7 +258,8 @@ def _panel(ax, sub: pd.DataFrame, xs: Sequence[str], value: str,
 
 def plot_axis(perf: pd.DataFrame, axis: str, out: Path | str,
               procedure: str = "wald", typ: str = "rd", event: int = 1,
-              arm: str = "correct") -> Optional[Path]:
+              arm: str = "correct",
+              series: Sequence[tuple] = BOOT_SERIES_DEFAULT) -> Optional[Path]:
     """Three-panel dose-response for one stress axis, faceted by tau."""
     sel = (perf["axis"].isin([axis, "base"]) & (perf["type"] == typ)
            & (perf["event"] == event) & (perf["arm"] == arm))
@@ -225,8 +267,9 @@ def plot_axis(perf: pd.DataFrame, axis: str, out: Path | str,
     # Built from `perf` rather than from `d`: `d` is already restricted to one
     # procedure, so the bootstrap rows would never survive it. Only PyTMLE's
     # default B = 100 is marked, since that is what users actually get.
+    wanted = [p for p, *_ in series] + ["wald"]
     boot = perf[sel & (perf["n_bootstrap"] == 100)
-                & perf["procedure"].isin([BOOT_PROC, "wald"])].copy()
+                & perf["procedure"].isin(wanted)].copy()
     d = _one_cell_per_point(d, f"plot_axis[{axis}, {arm}]")
     d, dropped = _spanning_series(d)
     if d.empty:
@@ -243,10 +286,12 @@ def plot_axis(perf: pd.DataFrame, axis: str, out: Path | str,
         ax.axhspan(0.93, 0.97, color=GRID, alpha=0.55, linewidth=0, zorder=1)
         ax.axhline(0.95, color=INK2, linewidth=1.0, linestyle=(0, (4, 3)), zorder=2)
         _panel(ax, sub, xs, "coverage", "coverage_mc_se")
-        has_boot = _boot_markers(ax, boot, xs, tt, "coverage")
+        has_boot = _boot_markers(ax, boot, xs, tt, "coverage", series)
         lo_y = min(0.5, float(sub["coverage"].min()) - 0.05)
         if has_boot and len(boot):
-            bl = boot.loc[boot["time"] == tt, "coverage"].min()
+            bl = boot.loc[(boot["time"] == tt)
+                          & boot["procedure"].isin([p for p, *_ in series]),
+                          "coverage"].min()
             if np.isfinite(bl):
                 lo_y = min(lo_y, float(bl) - 0.05)
         ax.set_ylim(lo_y, 1.005)
@@ -258,14 +303,14 @@ def plot_axis(perf: pd.DataFrame, axis: str, out: Path | str,
         ax = axes[1][j]
         ax.axhline(1.0, color=INK2, linewidth=1.0, linestyle=(0, (4, 3)), zorder=2)
         _panel(ax, sub, xs, "se_ratio")
-        _boot_markers(ax, boot, xs, tt, "se_ratio")
+        _boot_markers(ax, boot, xs, tt, "se_ratio", series)
         if j == 0:
             ax.set_ylabel("mean SE / empirical SD", fontsize=9, color=INK2)
 
         # width, so coverage bought by widening is visible
         ax = axes[2][j]
         _panel(ax, sub, xs, "mean_width")
-        _boot_markers(ax, boot, xs, tt, "mean_width")
+        _boot_markers(ax, boot, xs, tt, "mean_width", series)
         if j == 0:
             ax.set_ylabel("mean interval width", fontsize=9, color=INK2)
         ax.set_xlabel("stress level", fontsize=9, color=INK2)
@@ -277,11 +322,13 @@ def plot_axis(perf: pd.DataFrame, axis: str, out: Path | str,
         handles = list(handles) + [
             Line2D([], [], marker="o", markersize=5.5, markerfacecolor="none",
                    markeredgecolor=INK2, markeredgewidth=1.1, linestyle="none"),
-            Line2D([], [], marker="*", markersize=11, color=BOOT_COLOUR,
-                   markeredgecolor=SURFACE, markeredgewidth=0.6, linestyle="none"),
+        ] + [
+            Line2D([], [], marker=mk, markersize=ms, color=col,
+                   markeredgecolor=SURFACE, markeredgewidth=0.6, linestyle="none")
+            for _p, mk, ms, col, _lab in series
         ]
-        labels = list(labels) + ["Wald, same reps as \u2605",
-                                 "bootstrap (percentile, all draws, B = 100)"]
+        labels = list(labels) + ["Wald, same replicates"] + [
+            lab for *_r, lab in series]
     if handles:
         # figure-level and below the axes: the interesting curves fall towards
         # the bottom-right of the coverage panel, which is where a legend goes
@@ -435,6 +482,123 @@ def plot_procedures(perf: pd.DataFrame, out: Path | str, typ: str = "rd",
     return out
 
 
+#: Constructions drawn on the resample-count ladder, all on the *same
+#: unfiltered* draws.
+#:
+#: The reverse-percentile (`basic`) interval is deliberately not drawn: the
+#: ladder exists to read percentile against bias-corrected, and a third line
+#: makes that harder to see. `basic` is still derived and remains in
+#: `study_b_performance.csv`; its own result -- identical width to the
+#: percentile interval, so any coverage difference is pure location -- is in
+#: STUDY_B.md 10.3.
+LADDER_PROCS = (("pct", "percentile", PROC_COLOUR["pct_all"], "o"),
+                ("bc", "bias-corrected", PROC_COLOUR["bc_all"], "D"))
+
+#: Readable column headings for the bootstrap cells. Anything absent falls back
+#: to the cell name, so a new cell needs no entry to be plotted.
+CELL_TITLE = {
+    "B_BASEb500_n250_oracle": "base (oracle)",
+    "B_OV2_n250_correct": "OV2 — positivity",
+    "B_OV3_n250_correct": "OV3 — positivity",
+    "B_OV4_n250_correct": "OV4 — positivity",
+    "B_RA2_n250_correct": "RA2 — rare events",
+    "B_RA3_n250_correct": "RA3 — rare events",
+    "BS12_n250_correct": "base (correct)",
+    "BS12_n250_oracle": "base (oracle)",
+}
+
+
+def plot_b_ladder(perf: pd.DataFrame, out: Path | str, value: str = "coverage",
+                  typ: str = "rd", event: int = 1) -> Optional[Path]:
+    """Does the resample count matter, and does it matter differently per construction?
+
+    Rows are `tau`, columns are condition, and **x is the resample count**. That
+    is the dimension worth testing here: the bias correction adjusts the quantile
+    *levels* rather than the draws, so it reads the tails of the draw
+    distribution and can need more resamples than the percentile interval to
+    resolve them.
+
+    Drawn only where a cell configured a `b_grid`. Those rows are nested subsets
+    of one set of draws -- `boot < b` takes the first `b` resamples -- so the
+    comparison across `B` is paired to the draw, not two independent bootstraps.
+
+    Every procedure here comes from the same unfiltered draws of the same fits,
+    so a vertical gap is the interval construction and nothing else. Wald is
+    drawn flat across `B` as the reference: it does not depend on the bootstrap
+    at all, and it is what a user gets without one.
+    """
+    d = perf[(perf["type"] == typ) & (perf["event"] == event)].copy()
+    d = d[d["procedure"].notna()]
+    grid = d[d["procedure"].str.contains("@B", na=False)].copy()
+    if grid.empty:
+        return None
+    grid["B"] = grid["procedure"].str.extract(r"@B(\d+)").astype(int)
+    grid["kind"] = grid["procedure"].str.replace(r"_all@B\d+", "", regex=True)
+    wald = d[d["procedure"] == "wald"]
+
+    cells = sorted(grid["cell"].unique())
+    taus = sorted(grid["time"].unique())
+    bs = sorted(grid["B"].unique())
+    fig, axes = plt.subplots(len(taus), len(cells),
+                             figsize=(3.3 * len(cells), 2.5 * len(taus)),
+                             sharex=True, facecolor=SURFACE, squeeze=False)
+
+    for i, tt in enumerate(taus):
+        for j, cell in enumerate(cells):
+            ax = axes[i][j]
+            if value == "coverage":
+                ax.axhspan(0.93, 0.97, color=GRID, alpha=0.55, linewidth=0, zorder=1)
+                ax.axhline(0.95, color=INK2, linewidth=1.0,
+                           linestyle=(0, (4, 3)), zorder=2)
+            w = wald[(wald["cell"] == cell) & (wald["time"] == tt)]
+            if len(w) and np.isfinite(float(w.iloc[0][value])):
+                ax.axhline(float(w.iloc[0][value]), color=PROC_COLOUR["wald"],
+                           linewidth=1.4, zorder=3, label="Wald (no bootstrap)")
+            for kind, lab, col, mk in LADDER_PROCS:
+                g = (grid[(grid["cell"] == cell) & (grid["time"] == tt)
+                          & (grid["kind"] == kind)].sort_values("B"))
+                if g.empty:
+                    continue
+                ax.plot(g["B"], g[value], color=col, marker=mk, markersize=5,
+                        linewidth=1.6, zorder=4, label=lab,
+                        markeredgecolor=SURFACE, markeredgewidth=0.5)
+            _style(ax)
+            # Log spacing, because B doubles then more-than-doubles and a linear
+            # axis would bunch 100 and 200 together. The minor locator has to go
+            # explicitly: matplotlib labels decade subdivisions on a log axis, so
+            # "3 x 10^2" and "4 x 10^2" were printed on top of the real ticks.
+            ax.set_xscale("log")
+            ax.xaxis.set_minor_locator(matplotlib.ticker.NullLocator())
+            ax.xaxis.set_minor_formatter(matplotlib.ticker.NullFormatter())
+            ax.set_xticks(bs)
+            ax.set_xticklabels([str(b) for b in bs], fontsize=8)
+            ax.grid(True, axis="y", color=GRID, linewidth=0.8, alpha=0.9)
+            if i == 0:
+                ax.set_title(CELL_TITLE.get(cell, cell), fontsize=9,
+                             color=INK, pad=6)
+            if j == 0:
+                ax.set_ylabel(f"tau = {tt:.2f}\n{value.replace('_', ' ')}",
+                              fontsize=8.5, color=INK2)
+            if i == len(taus) - 1:
+                ax.set_xlabel("resamples B", fontsize=9, color=INK2)
+
+    fig.tight_layout(rect=(0, 0.06, 1, 0.90))
+    h, l = axes[0][0].get_legend_handles_labels()
+    seen, hh, ll = set(), [], []
+    for a, b in zip(h, l):
+        if b not in seen:
+            seen.add(b); hh.append(a); ll.append(b)
+    fig.legend(hh, ll, loc="lower center", ncol=len(ll), frameon=False,
+               fontsize=8.5, bbox_to_anchor=(0.5, 0.005))
+    _titles(fig, "Bootstrap interval constructions against B",
+            "Identical unfiltered draws from identical fits, so a vertical gap is "
+            "the construction alone. Wald shown flat as the no-bootstrap reference.")
+    out = Path(out)
+    fig.savefig(out, dpi=680, facecolor=SURFACE, bbox_inches="tight")
+    plt.close(fig)
+    return out
+
+
 def make_all_b(perf: pd.DataFrame, out_dir: Path | str) -> Dict[str, Path]:
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -444,12 +608,27 @@ def make_all_b(perf: pd.DataFrame, out_dir: Path | str) -> Dict[str, Path]:
             p = plot_axis(perf, axis, out_dir / f"study_b_{axis}_{arm}.png", arm=arm)
             if p:
                 made[f"{axis}_{arm}"] = p
+            # Variant carrying both bootstrap constructions. Drawn wherever a
+            # `bc_all` row exists, i.e. for any cell run since the bootstrap
+            # started emitting every construction under every filter.
+            if (perf["procedure"] == "bc_all").any():
+                p = plot_axis(perf, axis,
+                              out_dir / f"study_b_{axis}_{arm}_bc.png",
+                              arm=arm, series=BOOT_SERIES_BC)
+                if p:
+                    made[f"{axis}_{arm}_bc"] = p
     p = plot_min_nuisance(perf, out_dir / "study_b_min_nuisance.png")
     if p:
         made["min_nuisance"] = p
     p = plot_procedures(perf, out_dir / "study_b_procedures.png")
     if p:
         made["procedures"] = p
+    # Only present when a cell configured a `b_grid`; harmless otherwise.
+    for val, tag in (("coverage", "coverage"), ("mean_width", "width"),
+                     ("se_ratio", "se_sd")):
+        p = plot_b_ladder(perf, out_dir / f"study_b_ladder_{tag}.png", value=val)
+        if p:
+            made[f"ladder_{tag}"] = p
     return made
 
 

@@ -596,28 +596,53 @@ def _boot_cell():
                  target_times=[0.4, 1.0], n_bootstrap=6)
 
 
-def test_every_construction_is_emitted_under_every_filter(tmp_path):
-    """`basic` and `bca` must not be confined to one filter.
+def test_both_constructions_are_emitted_under_every_filter(tmp_path):
+    """One run must yield percentile *and* bias-corrected, under every filter.
 
-    They used to be emitted only under the convergence filter, which confounded
-    the interval construction with the filter: their weak showing at OV4 was
-    measuring the filter, not the construction. All three constructions now come
-    from the same `intervals_from_draws` call under each rule, so the cross is
-    free and the two effects are separable.
+    This is the whole point of the design: they are quantiles of the same draws,
+    so `pct_*` against `bc_*` is a comparison of interval constructions and
+    nothing else, and neither needs a run of its own. Confining a construction
+    to one filter -- as `basic` and the old accelerated variant once were --
+    confounds the construction with the filter, which is how a weak showing at
+    OV4 came to be a measurement of the filter.
     """
     from sim.study_b import FILTERS, run_cell_b
+    from sim.bootstrap_ci import CONSTRUCTIONS
 
     d = run_cell_b(_boot_cell(), tmp_path, n_jobs=1, chunk=2)
     got = pd.concat([pd.read_parquet(s) for s in sorted(d.glob("shard_*.parquet"))],
                     ignore_index=True)
     procs = set(got["procedure"].dropna())
+    assert CONSTRUCTIONS == ("percentile", "bc")
     for label, _, _ in FILTERS:
         suffix = label[len("pct_"):]
-        for kind in ("pct", "basic", "bca"):
+        for kind in ("pct", "bc"):
             assert f"{kind}_{suffix}" in procs, f"missing {kind}_{suffix}"
     # the old confined names must be gone, or a stale reader would silently pick
     # up the filtered variant believing it unfiltered
     assert "basic" not in procs and "bca" not in procs
+    # the accelerated construction is retired; nothing may emit it
+    assert not any(str(p).startswith("bca") for p in procs)
+
+
+def test_percentile_and_bc_actually_differ(tmp_path):
+    """A `bc_*` row that merely copies `pct_*` would make the study vacuous.
+
+    The bias correction falls back to the percentile interval when `z0` is
+    undefined, which is legitimate and common -- but it must not be *always*, or
+    the comparison the re-run is paying for measures nothing.
+    """
+    import numpy as np
+    from sim.bootstrap_ci import intervals_from_draws
+
+    rng = np.random.default_rng(0)
+    draws = rng.normal(0.30, 0.05, 400)      # point estimate off the draw median
+    iv = intervals_from_draws(draws, point=0.34, alpha=0.05)
+    assert set(iv) == {"percentile", "bc"}
+    assert iv["bc"] != iv["percentile"]
+    # and it degrades to percentile rather than exploding when z0 is undefined
+    iv0 = intervals_from_draws(draws, point=-99.0, alpha=0.05)
+    assert iv0["bc"] == iv0["percentile"]
 
 
 def test_raw_draws_are_archived_beside_the_shard(tmp_path):
@@ -639,10 +664,14 @@ def test_raw_draws_are_archived_beside_the_shard(tmp_path):
     assert not list(d.glob("*.tmp")), "temporary draws file left behind"
 
 
-def test_legacy_basic_and_bca_are_mapped_to_their_true_filter(tmp_path):
-    """Stored `basic`/`bca` rows were convergence-filtered; say so on load."""
-    from sim.study_b_report import _LEGACY_PROCEDURES
+def test_legacy_basic_is_mapped_to_its_true_filter(tmp_path):
+    """Stored `basic` rows were convergence-filtered; say so on load."""
+    from sim.study_b_report import _LEGACY_PROCEDURES, _RETIRED_PROCEDURES
 
     assert _LEGACY_PROCEDURES["basic"] == "basic_convfilter"
-    assert _LEGACY_PROCEDURES["bca"] == "bca_convfilter"
     assert _LEGACY_PROCEDURES["pct_shipped"] == "pct_convfilter"
+    # `bca` is not renamed and carried forward -- it is dropped. Those rows were
+    # convergence-filtered, so they could never be read against `pct_all`, and
+    # the construction is no longer offered.
+    assert "bca" not in _LEGACY_PROCEDURES
+    assert "bca" in _RETIRED_PROCEDURES

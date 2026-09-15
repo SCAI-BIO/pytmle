@@ -232,3 +232,35 @@ def test_agreement_summary_survives_an_all_skipped_table():
     })
     assert agreement_summary(agr).empty
     assert agreement_summary(pd.DataFrame()).empty
+
+
+def test_performance_does_not_null_unknown_procedures():
+    """A procedure absent from `PROC_ORDER` must not be silently erased.
+
+    `pd.Categorical(values, PROC_ORDER)` treats the list as a *whitelist*: any
+    label not on it becomes NaN. The resample-count ladder's
+    `{construction}_all@B{b}` rows
+    were computed, written to the shards -- 3240 rows per shard -- and then
+    nulled at report time, so every table came back empty while the data sat
+    intact on disk. Same shape as the other bugs here: exit code zero, plausible
+    output, wrong content.
+    """
+    import numpy as np
+    from sim.study_b_report import PROC_ORDER, performance_b
+
+    base = dict(cell="C", n=250, arm="oracle", n_bootstrap=500, min_nuisance=0.01,
+                max_updates=200, axis="a", level="l", type="rd", event=1,
+                time=1.0, group=-1, est=0.1, se=0.02, ci_lo=0.05, ci_hi=0.15,
+                error=None, eff_b=500, dgp_config="base", dgp_override="{}",
+                seed_key="C", target_times=(1.0,))
+    rows = [{**base, "rep": i, "procedure": p}
+            for i in range(4)
+            for p in ("wald", "pct_all", "bc_all@B100", "pct_all@B500")]
+    out = performance_b(pd.DataFrame(rows), config="base", n_mc=20_000)
+
+    got = set(out["procedure"].dropna().astype(str))
+    assert "bc_all@B100" in got, "unknown procedure erased by the category list"
+    assert "pct_all@B500" in got
+    assert out["procedure"].isna().sum() == 0, "some procedure became NaN"
+    # and the known ones must still sort first
+    assert list(out["procedure"].cat.categories)[:len(PROC_ORDER)] == PROC_ORDER
