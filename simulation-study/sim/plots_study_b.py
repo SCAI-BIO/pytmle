@@ -146,7 +146,7 @@ BOOT_COLOUR = PROC_COLOUR[BOOT_PROC]
 
 #: The default single-series marker: the unfiltered percentile interval.
 BOOT_SERIES_DEFAULT = (
-    (BOOT_PROC, "*", 11, BOOT_COLOUR, "bootstrap (percentile, all draws, B = 100)"),
+    (BOOT_PROC, "*", 11, BOOT_COLOUR, "bootstrap (percentile, B = 100)"),
 )
 
 #: The construction comparison: percentile against bias-corrected.
@@ -163,9 +163,9 @@ BOOT_SERIES_DEFAULT = (
 #: carry no `bc_all` and simply do not get this figure.
 BOOT_SERIES_BC = (
     ("pct_all", "*", 11, PROC_COLOUR["pct_all"],
-     "bootstrap: percentile, all draws"),
+     "bootstrap: percentile"),
     ("bc_all", "D", 6.5, PROC_COLOUR["bc_all"],
-     "bootstrap: bias-corrected, all draws"),
+     "bootstrap: bias-corrected"),
 )
 
 
