@@ -1,6 +1,6 @@
 [project]
 name = "pytmle"
-version = "0.6.0"
+version = "0.7.0"
 description = "A Flexible Python Implementation of Targeted Estimation for Survival and Competing Risks Analysis"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -25,13 +25,12 @@ dev = [
     "torch>=2.6.0",
 ]
 tausurv = [
-    "tausurv-workspace",
+    "tausurv>=0.1.0 ; python_full_version >= '3.12'",
 ]
 
 [tool.uv.sources]
 pycox = { git = "https://github.com/pooya-mohammadi/pycox" }
 torch = { index = "pytorch-cpu" }
-tausurv-workspace = { git = "https://github.com/SCAI-BIO/tausurv.git" }
 
 [tool.setuptools]
 packages = ["pytmle"]

@@ -38,6 +38,8 @@ def wrap_model(
             # tausurv-based model with competing risks
             model_type = "tausurv_cr"
             supports_cr = True
+            # Adapt number of causes because the same model is fitted for cause-specific hazards + censoring
+            model.n_causes = len(np.unique(all_events)) - 1
         elif isinstance(model, SurvivalPredictor):
             # tausurv-based model without competing risks
             model_type = "tausurv_single"

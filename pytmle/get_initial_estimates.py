@@ -9,12 +9,12 @@ from sklearn.ensemble import (
     StackingClassifier,
 )
 from sklearn.model_selection import cross_val_predict, StratifiedKFold
-from typing import Tuple, Optional, Any, List, Literal
+from typing import Tuple, Optional, Any, List, Literal, Union
 from copy import deepcopy
 import time
 import warnings
 
-from .pycox_wrapper import wrap_model
+from .pycox_wrapper import PycoxWrapper, PycoxWrapperCauseSpecific, wrap_model
 from .initial_estimates_default_models import get_default_models
 
 
@@ -242,9 +242,14 @@ def fit_state_learner(
         )
 
     loss_list = []
-    fitted_models_dict = {}
+    risk_models_cache_dict = {}
+    censoring_models_cache_dict = {}
+    best_pairs_dict = {}
     final_labtrans = None
     min_loss = np.inf
+
+    # one object for consistent stratified k-fold cross fitting
+    skf = StratifiedKFold(n_splits=cv_folds)
 
     for risks_model, risks_labtrans in zip(risks_models, risks_label_transformers):
         for censoring_model, censoring_labtrans in zip(
@@ -272,39 +277,52 @@ def fit_state_learner(
                         )
 
                 combined_labtrans = CombinedLabtrans(risks_labtrans, censoring_labtrans)
+
+            # Get the counting processes per event type and stack all cumulative hazards
+            grid_mat = np.tile(time_grid, (X.shape[0], 1))
+            event_mat = event_times[:, np.newaxis] <= grid_mat
+            chfs_list = []
+            events_by_cause_list = []
+
+            # cross-fit the risk and censoring models
             try:
-                # cross-fit the risk and censoring models
-                (
-                    surv_1_i,
-                    surv_0_i,
-                    cens_surv_1_i,
-                    cens_surv_0_i,
-                    cumhaz_1_i,
-                    cumhaz_0_i,
-                    cumhaz_f_i,
-                    cens_cumhaz_f_i,
-                    fitted_models,
-                    jumps,
-                ) = cross_fit_risk_model(
-                    X=X,
-                    trt=trt,
-                    event_times=event_times,
-                    event_indicator=event_indicator,
-                    cv_folds=cv_folds,
-                    labtrans=combined_labtrans,
-                    risks_model=risks_model,
-                    censoring_model=censoring_model,
-                    additional_inputs=additional_inputs,
-                    n_epochs=n_epochs,
-                    batch_size=batch_size,
-                    verbose=verbose >= 4,
-                )
-                # Get the counting processes per event type and stack all cumulative hazards
-                grid_mat = np.tile(time_grid, (X.shape[0], 1))
-                event_mat = event_times[:, np.newaxis] <= grid_mat
-                chfs_list = []
-                events_by_cause_list = []
                 if fit_risks_model:
+                    if (risks_model, combined_labtrans) in risk_models_cache_dict:
+                        # if risk model has already been fitted with the given label transformer, just load it from the dictionary
+                        risks_models_fitted = risk_models_cache_dict[(risks_model, combined_labtrans)]
+                    else:
+                        risks_models_fitted = cross_fit_model(
+                            skf=skf,
+                            X=X,
+                            trt=trt,
+                            event_times=event_times,
+                            event_indicator=event_indicator,
+                            labtrans=combined_labtrans,
+                            model=risks_model,
+                            additional_inputs=additional_inputs,
+                            n_epochs=n_epochs,
+                            batch_size=batch_size,
+                            verbose=verbose >= 4,
+                        )
+                        risk_models_cache_dict[(risks_model, combined_labtrans)] = risks_models_fitted
+                    # get out-of-fold predictions
+                    (
+                        surv_1_i,
+                        surv_0_i,
+                        cumhaz_1_i,
+                        cumhaz_0_i,
+                        cumhaz_f_i,
+                        jumps,
+                    ) = predict_oof(
+                        models_per_fold=risks_models_fitted,
+                        skf=skf,
+                        X=X,
+                        trt=trt,
+                        event_times=event_times,
+                        event_indicator=event_indicator,
+                        labtrans=combined_labtrans,
+                        additional_inputs=additional_inputs,
+                    )
                     causes = np.unique(event_indicator[event_indicator != 0])
                     for c in causes:
                         events_by_cause_list.append(
@@ -318,14 +336,52 @@ def fit_state_learner(
                         event_mat * (event_indicator > 0)[:, np.newaxis]
                     )
                     chfs_list.append(-np.log(precomputed_event_free_survival))
-                events_by_cause_list.append(
-                    event_mat * (event_indicator == 0)[:, np.newaxis]
-                )
+
                 if fit_censoring_model:
+                    if (censoring_model, combined_labtrans) in censoring_models_cache_dict:
+                        # if censoring model has already been fitted with the given label transformer, just load it from the dictionary
+                        censoring_models_fitted = censoring_models_cache_dict[(censoring_model, combined_labtrans)]
+                    else:
+                        censoring_models_fitted = cross_fit_model(
+                            skf=skf,
+                            X=X,
+                            trt=trt,
+                            event_times=event_times,
+                            event_indicator=event_indicator==0,
+                            labtrans=combined_labtrans,
+                            model=censoring_model,
+                            additional_inputs=additional_inputs,
+                            n_epochs=n_epochs,
+                            batch_size=batch_size,
+                            verbose=verbose >= 4,
+                        )
+                        censoring_models_cache_dict[(censoring_model, combined_labtrans)] = censoring_models_fitted
+                    # get out-of-fold predictions
+                    (
+                        cens_surv_1_i,
+                        cens_surv_0_i,
+                        _,
+                        _,
+                        cens_cumhaz_f_i,
+                        jumps,
+                    ) = predict_oof(
+                        models_per_fold=censoring_models_fitted,
+                        skf=skf,
+                        X=X,
+                        trt=trt,
+                        event_times=event_times,
+                        event_indicator=event_indicator==0,
+                        labtrans=combined_labtrans,
+                        additional_inputs=additional_inputs,
+                    )
                     chfs_list.append(cens_cumhaz_f_i[..., 0])
                 else:
                     # precomputed censoring survival enters the loss if given
                     chfs_list.append(-np.log(precomputed_censoring_survival))
+
+                events_by_cause_list.append(
+                    event_mat * (event_indicator == 0)[:, np.newaxis]
+                )
                 try:
                     chfs = np.stack(chfs_list, axis=-1)
                 except ValueError:
@@ -373,7 +429,7 @@ def fit_state_learner(
 
                 if loss < min_loss:
                     min_loss = loss
-                    if cumhaz_1_i is not None and cumhaz_0_i is not None:
+                    if fit_risks_model:
                         haz_1 = np.diff(cumhaz_1_i, prepend=0, axis=1)
                         haz_0 = np.diff(cumhaz_0_i, prepend=0, axis=1)
                         surv_1 = surv_1_i
@@ -383,7 +439,7 @@ def fit_state_learner(
                         haz_0 = None
                         surv_1 = None
                         surv_0 = None
-                    if cens_surv_1_i is not None and cens_surv_0_i is not None:
+                    if fit_censoring_model:
                         cens_surv_1 = cens_surv_1_i
                         cens_surv_0 = cens_surv_0_i
                     else:
@@ -391,7 +447,10 @@ def fit_state_learner(
                         cens_surv_0 = None
                     final_labtrans = combined_labtrans
                     if return_model:
-                        fitted_models_dict.update(fitted_models)
+                        if fit_risks_model:
+                            best_pairs_dict.update({f"risks_model_{k}": v for k, v in risks_models_fitted.items()})
+                        if fit_censoring_model:
+                            best_pairs_dict.update({f"censoring_model_{k}": v for k, v in censoring_models_fitted.items()})
 
             except Exception as e:
                 # If one of the model fails, skip it
@@ -410,7 +469,7 @@ def fit_state_learner(
             surv_0,
             cens_surv_1,
             cens_surv_0,
-            fitted_models_dict,
+            best_pairs_dict,
             final_labtrans,
             loss_df,
         )
@@ -427,26 +486,19 @@ def fit_state_learner(
     )
 
 
-def cross_fit_risk_model(
+def cross_fit_model(
+    skf: StratifiedKFold,
     X: np.ndarray,
     trt: np.ndarray,
     event_times: np.ndarray,
     event_indicator: np.ndarray,
-    cv_folds: int,
     labtrans,
-    risks_model,
-    censoring_model,
+    model,
     additional_inputs: Optional[Tuple],
     n_epochs: int,
     batch_size: int,
     verbose: bool,
 ):
-    num_risks = len(np.unique(event_indicator)) - 1  # subtract 1 for censoring
-
-    if labtrans is not None:
-        jumps = labtrans.cuts
-    else:
-        jumps = np.unique(event_times)
 
     if additional_inputs is not None:
         if not isinstance(additional_inputs, tuple):
@@ -458,30 +510,82 @@ def cross_fit_risk_model(
                 )
 
     models = {}
-    skf = StratifiedKFold(n_splits=cv_folds)
-    surv_1 = np.empty((X.shape[0], len(jumps)))
-    surv_0 = np.empty((X.shape[0], len(jumps)))
-    cens_surv_1 = np.empty((X.shape[0], len(jumps)))
-    cens_surv_0 = np.empty((X.shape[0], len(jumps)))
-    cumhaz_1 = np.empty((X.shape[0], len(jumps), num_risks))
-    cumhaz_0 = np.empty((X.shape[0], len(jumps), num_risks))
-    cumhaz_f = np.empty((X.shape[0], len(jumps), num_risks))
-    cens_cumhaz_f = np.empty((X.shape[0], len(jumps), 1))
-    for i, (train_indices, val_indices) in enumerate(skf.split(X, trt)):
-        X_train, X_val = X[train_indices], X[val_indices]
-        trt_train, trt_val = trt[train_indices], trt[val_indices]
+    
+    for i, (train_indices, _) in enumerate(skf.split(X, trt)):
+        X_train = X[train_indices]
+        trt_train = trt[train_indices]
         event_times_train = event_times[train_indices]
         event_indicator_train = event_indicator[train_indices]
         if additional_inputs is not None:
             additional_inputs_train = ()
-            additional_inputs_val = ()
             for a in additional_inputs:
                 additional_inputs_train += (a[train_indices],)
-                additional_inputs_val += (a[val_indices],)
         else:
             additional_inputs_train = None
-            additional_inputs_val = None
         input = np.column_stack((trt_train, X_train)).astype(np.float32)
+
+
+        model_i = wrap_model(
+            deepcopy(model),
+            labtrans=labtrans,
+            all_times=event_times,
+            all_events=event_indicator,
+            input_size=X.shape[1] + 1,
+            verbose=verbose,
+        )
+        labels = (
+            event_times_train.astype(np.float32),
+            event_indicator_train.astype(int),
+        )
+
+        model_i.fit(
+            input,
+            labels,
+            batch_size=batch_size,
+            epochs=n_epochs,
+            verbose=verbose,
+            additional_inputs=additional_inputs_train,
+        )  # type: ignore
+        models[f"fold_{i}"] = model_i
+
+
+    return models
+
+
+def predict_oof(
+    models_per_fold: dict[str, Union[PycoxWrapperCauseSpecific, PycoxWrapper]],
+    skf: StratifiedKFold,
+    X: np.ndarray,
+    trt: np.ndarray,
+    event_times: np.ndarray,
+    event_indicator: np.ndarray,
+    labtrans,
+    additional_inputs: Optional[Tuple],
+):
+    num_risks = len(np.unique(event_indicator)) - 1  # subtract 1 for censoring
+
+    if labtrans is not None:
+        jumps = labtrans.cuts
+    else:
+        jumps = np.unique(event_times)
+
+    surv_1 = np.empty((X.shape[0], len(jumps)))
+    surv_0 = np.empty((X.shape[0], len(jumps)))
+    cumhaz_1 = np.empty((X.shape[0], len(jumps), num_risks))
+    cumhaz_0 = np.empty((X.shape[0], len(jumps), num_risks))
+    cumhaz_f = np.empty((X.shape[0], len(jumps), num_risks))
+
+    for i, (_, val_indices) in enumerate(skf.split(X, trt)):
+        model_i = models_per_fold[f"fold_{i}"]
+
+        X_val = X[val_indices]
+        trt_val = trt[val_indices]
+        if additional_inputs is not None:
+            additional_inputs_val = ()
+            for a in additional_inputs:
+                additional_inputs_val += (a[val_indices],)
+        else:
+            additional_inputs_val = None
 
         # counterfactual
         X_val_1 = np.column_stack((np.ones_like(trt_val), X_val)).astype(np.float32)
@@ -489,84 +593,23 @@ def cross_fit_risk_model(
         # factual
         X_val_f = np.column_stack((trt_val, X_val)).astype(np.float32)
 
-        if risks_model is not None:
-            model_i = wrap_model(
-                deepcopy(risks_model),
-                labtrans=labtrans,
-                all_times=event_times,
-                all_events=event_indicator,
-                input_size=X.shape[1] + 1,
-                verbose=verbose,
-            )
-            labels = (
-                event_times_train.astype(np.float32),
-                event_indicator_train.astype(int),
-            )
-
-            model_i.fit(
-                input,
-                labels,
-                batch_size=batch_size,
-                epochs=n_epochs,
-                verbose=verbose,
-                additional_inputs=additional_inputs_train,
-            )  # type: ignore
-            models[f"risks_model_fold_{i}"] = model_i
-
-            surv_1[val_indices] = model_i.predict_surv(X_val_1, additional_inputs_val)
-            surv_0[val_indices] = model_i.predict_surv(X_val_0, additional_inputs_val)
-            cumhaz_1[val_indices] = model_i.predict_cumhaz(
-                X_val_1, additional_inputs_val
-            )
-            cumhaz_0[val_indices] = model_i.predict_cumhaz(
-                X_val_0, additional_inputs_val
-            )
-            cumhaz_f[val_indices] = model_i.predict_cumhaz(
-                X_val_f, additional_inputs_val
-            )
-        if censoring_model is not None:
-            model_i_censoring = wrap_model(
-                deepcopy(censoring_model),
-                labtrans=labtrans,
-                all_times=event_times,
-                all_events=event_indicator == 0,
-                input_size=X.shape[1] + 1,
-                verbose=verbose,
-            )
-            labels = (
-                event_times_train.astype(np.float32),
-                (event_indicator_train == 0).astype(int),
-            )
-
-            model_i_censoring.fit(
-                input,
-                labels,
-                batch_size=batch_size,
-                epochs=n_epochs,
-                verbose=verbose,
-                additional_inputs=additional_inputs_train,
-            )  # type: ignore
-            models[f"censoring_model_fold_{i}"] = model_i_censoring
-
-            cens_surv_1[val_indices] = model_i_censoring.predict_surv(
-                X_val_1, additional_inputs_val
-            )
-            cens_surv_0[val_indices] = model_i_censoring.predict_surv(
-                X_val_0, additional_inputs_val
-            )
-            cens_cumhaz_f[val_indices] = model_i_censoring.predict_cumhaz(
-                X_val_f, additional_inputs_val
-            )
-
+        surv_1[val_indices] = model_i.predict_surv(X_val_1, additional_inputs_val)
+        surv_0[val_indices] = model_i.predict_surv(X_val_0, additional_inputs_val)
+        cumhaz_1[val_indices] = model_i.predict_cumhaz(
+            X_val_1, additional_inputs_val
+        )
+        cumhaz_0[val_indices] = model_i.predict_cumhaz(
+            X_val_0, additional_inputs_val
+        )
+        cumhaz_f[val_indices] = model_i.predict_cumhaz(
+            X_val_f, additional_inputs_val
+        )
+        
     return (
-        surv_1 if risks_model is not None else None,
-        surv_0 if risks_model is not None else None,
-        cens_surv_1 if censoring_model is not None else None,
-        cens_surv_0 if censoring_model is not None else None,
-        cumhaz_1 if risks_model is not None else None,
-        cumhaz_0 if risks_model is not None else None,
-        cumhaz_f if risks_model is not None else None,
-        cens_cumhaz_f if censoring_model is not None else None,
-        models,
+        surv_1,
+        surv_0,
+        cumhaz_1,
+        cumhaz_0,
+        cumhaz_f,
         jumps,
     )
