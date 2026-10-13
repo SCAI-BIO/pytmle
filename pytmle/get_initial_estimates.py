@@ -284,6 +284,11 @@ def fit_state_learner(
             chfs_list = []
             events_by_cause_list = []
 
+            if combined_labtrans is not None:
+                jumps = combined_labtrans.cuts
+            else:
+                jumps = np.unique(event_times)
+
             # cross-fit the risk and censoring models
             try:
                 if fit_risks_model:
@@ -312,15 +317,13 @@ def fit_state_learner(
                         cumhaz_1_i,
                         cumhaz_0_i,
                         cumhaz_f_i,
-                        jumps,
                     ) = predict_oof(
                         models_per_fold=risks_models_fitted,
                         skf=skf,
                         X=X,
                         trt=trt,
-                        event_times=event_times,
                         event_indicator=event_indicator,
-                        labtrans=combined_labtrans,
+                        jumps=jumps,
                         additional_inputs=additional_inputs,
                     )
                     causes = np.unique(event_indicator[event_indicator != 0])
@@ -363,15 +366,13 @@ def fit_state_learner(
                         _,
                         _,
                         cens_cumhaz_f_i,
-                        jumps,
                     ) = predict_oof(
                         models_per_fold=censoring_models_fitted,
                         skf=skf,
                         X=X,
                         trt=trt,
-                        event_times=event_times,
                         event_indicator=event_indicator==0,
-                        labtrans=combined_labtrans,
+                        jumps=jumps,
                         additional_inputs=additional_inputs,
                     )
                     chfs_list.append(cens_cumhaz_f_i[..., 0])
@@ -557,17 +558,11 @@ def predict_oof(
     skf: StratifiedKFold,
     X: np.ndarray,
     trt: np.ndarray,
-    event_times: np.ndarray,
     event_indicator: np.ndarray,
-    labtrans,
+    jumps: np.ndarray,
     additional_inputs: Optional[Tuple],
 ):
     num_risks = len(np.unique(event_indicator)) - 1  # subtract 1 for censoring
-
-    if labtrans is not None:
-        jumps = labtrans.cuts
-    else:
-        jumps = np.unique(event_times)
 
     surv_1 = np.empty((X.shape[0], len(jumps)))
     surv_0 = np.empty((X.shape[0], len(jumps)))
@@ -611,5 +606,4 @@ def predict_oof(
         cumhaz_1,
         cumhaz_0,
         cumhaz_f,
-        jumps,
     )
