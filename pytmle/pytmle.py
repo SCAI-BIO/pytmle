@@ -192,6 +192,8 @@ class PyTMLE:
         cv_folds: int,
         models,
         labtrans,
+        censoring_models,
+        censoring_labtrans,
         propensity_score_models,
         propensity_score_calibration_method: Optional[Literal["isotonic", "sigmoid"]],
         additional_inputs: Optional[Tuple],
@@ -314,6 +316,8 @@ class PyTMLE:
                 return_model=save_models,
                 models=models,
                 labtrans=labtrans,
+                censoring_models=censoring_models,
+                censoring_labtrans=censoring_labtrans,
                 max_time=max(self.target_times),
                 n_epochs=n_epochs,
                 batch_size=batch_size,
@@ -435,6 +439,8 @@ class PyTMLE:
         bootstrap_seed=None,
         models=None,
         labtrans=None,
+        censoring_models=None,
+        censoring_labtrans=None,
         propensity_score_models=None,
         propensity_score_calibration_method: Optional[
             Literal["isotonic", "sigmoid"]
@@ -475,6 +481,10 @@ class PyTMLE:
             A list of models to use for the state learner. If None, use the default library. Default is None.
         labtrans : Optional, optional
             A list of labtrans objects to use for the risk model (if required; e.g., discretizer for DeepHit). If not None, needs to be one object for all models, or one object per model. Default is None.
+        censoring_models: Optional, optional
+            A list of models to use for the censoring model. If None, use the same models for risk and censoring (default library if models is None). Default is None.
+        censoring_labtrans: Optional, optional
+            A list of labtrans objects to use for the censoring model (if required; e.g., discretizer for DeepHit). If not None, needs to be one object for all models, or one object per model. Default is None.
         propensity_score_models : Optional, optional
             A list of models to use for the propensity score stacking classifier. If None, use the default library. Default is None.
         propensity_score_calibration_method : Optional[Literal["isotonic", "sigmoid"]], optional
@@ -495,6 +505,8 @@ class PyTMLE:
             save_models=save_models,
             models=models,
             labtrans=labtrans,
+            censoring_models=censoring_models,
+            censoring_labtrans=censoring_labtrans,
             propensity_score_models=propensity_score_models,
             propensity_score_calibration_method=propensity_score_calibration_method,
             additional_inputs=additional_inputs,
@@ -527,9 +539,11 @@ class PyTMLE:
                 n_jobs=n_jobs,
                 stratified_bootstrap=stratified_bootstrap,
                 models=models,
+                labtrans=labtrans,
+                censoring_models=censoring_models,
+                censoring_labtrans=censoring_labtrans,
                 propensity_score_models=propensity_score_models,
                 propensity_score_calibration_method=propensity_score_calibration_method,
-                labtrans=labtrans,
                 n_epochs=n_epochs,
                 batch_size=batch_size,
             )

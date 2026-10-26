@@ -134,6 +134,8 @@ def fit_state_learner(
     return_model: bool,
     models,
     labtrans,
+    censoring_models,
+    censoring_labtrans,
     additional_inputs: Optional[Tuple],
     max_time: float,
     n_epochs: int = 100,
@@ -174,9 +176,13 @@ def fit_state_learner(
     return_model : bool
         Whether to return the fitted model.
     models :
-        The risk / censoring models.
+        The risk models (also used for censoring if not specified separately).
     labtrans :
         The label transformer.
+    censoring_models :
+        The censoring models.
+    censoring_labtrans :
+        The label transformer for the censoring models.
     additional_inputs :
         Additional inputs to the models (for pycox models; need to be compatible with torchtuples). Default is None.
     max_time :
@@ -209,33 +215,57 @@ def fit_state_learner(
     # A time grid for the integrated Brier scores
     time_grid = np.linspace(0, max_time, 100)
     # If no models are provided, use the default models
-    if models is None:
+    if models is None and censoring_models is None:
         risks_models, censoring_models, labtrans = get_default_models(
             event_times=event_times,
             event_indicator=event_indicator,
-            input_size=X.shape[1] + 1,  # number of covariateses + treatment
+            input_size=X.shape[1] + 1,  # number of covariates + treatment
             verbose=verbose,
         )
         if not fit_risks_model:
             risks_models = [None]
         if not fit_censoring_model:
             censoring_models = [None]
-    else:
+    # If models is provided, but not censoring_models: Use the same models for risks and censoring
+    elif models is not None and censoring_models is None:
+        if len(np.unique(event_indicator)) > 2:
+            raise RuntimeError("Pass censoring_models separately if there are more than two event types.")
         if not isinstance(models, list):
             risks_models = [models] if fit_risks_model else [None]
             censoring_models = [models] if fit_censoring_model else [None]
         else:
             risks_models = models if fit_risks_model else [None]
             censoring_models = models if fit_censoring_model else [None]
+        censoring_labtrans = labtrans
+    # If both models and censoring_models provided, set both separately
+    elif models is not None and censoring_models is not None:
+        if not isinstance(models, list):
+            risks_models = [models] if fit_risks_model else [None]
+        else:
+            risks_models = models if fit_risks_model else [None]
+        if not isinstance(censoring_models, list):
+            censoring_models = [censoring_models] if fit_censoring_model else [None]
+        else:
+            censoring_models = censoring_models if fit_censoring_model else [None]
+    # Providing only censoring_models without models is not supported
+    else:
+        raise ValueError("Also provide 'models' when specifying 'censoring_models'.")
+
+
     if not isinstance(labtrans, list):
         if labtrans is None:
             labtrans = [None] * len(models)
         else:
             labtrans = [labtrans]
+    if not isinstance(censoring_labtrans, list):
+        if censoring_labtrans is None:
+            censoring_labtrans = [None] * len(censoring_models)
+        else:
+            censoring_labtrans = [censoring_labtrans]
     risks_label_transformers = labtrans if fit_risks_model else [None]
-    censoring_label_transformers = labtrans if fit_censoring_model else [None]
+    censoring_label_transformers = censoring_labtrans if fit_censoring_model else [None]
     if (fit_risks_model and len(risks_models) != len(labtrans)) or (
-        fit_censoring_model and len(censoring_models) != len(labtrans)
+        fit_censoring_model and len(censoring_models) != len(censoring_labtrans)
     ):
         raise ValueError(
             "The number of models and label transformers must be the same."
@@ -272,10 +302,20 @@ def fit_state_learner(
                         self.censoring_lt = censoring_lt
 
                     def transform(self, durations, events):
-                        return self.risks_lt.transform(
-                            self.censoring_lt.transform(durations, events)
-                        )
+                        # first transform using risks labtrans
+                        durations, events = self.risks_lt.transform(durations=durations, events=events)
+                        # map durations back to labtrans cut boundaries
+                        durations = self.risks_lt.cuts[durations]
 
+                        # finally transofrm using censoring labtrans
+                        return self.censoring_lt.transform(durations, events)
+
+                    @property
+                    def cuts(self):
+                        return self.censoring_lt.cuts
+                    
+                if len(risks_labtrans.cuts) != len(censoring_labtrans.cuts):
+                    raise RuntimeError("Label transformers need to have the same number of cut points")
                 combined_labtrans = CombinedLabtrans(risks_labtrans, censoring_labtrans)
 
             # Get the counting processes per event type and stack all cumulative hazards
