@@ -1,8 +1,10 @@
 import pytest
-import pandas as pd
+from sklearn.svm import SVC
+from sklearn.ensemble import RandomForestClassifier
 
 from pytmle import PyTMLE
 from pytmle.bootstrap import BOOTSTRAP_METHODS
+from pytmle.initial_estimates_default_models import vanilla_deephit
 
 
 @pytest.mark.parametrize(
@@ -16,7 +18,7 @@ from pytmle.bootstrap import BOOTSTRAP_METHODS
     ],
 )
 @pytest.mark.slow
-def test_fit(mock_main_class_inputs, precomputed_initial_est_mask):
+def test_fit_with_precomputed_initial_est(mock_main_class_inputs, precomputed_initial_est_mask):
     df = mock_main_class_inputs["data"][["event_time", "event_indicator", "group", "x1", "x2", "x3"]]
 
     initial_estimates = mock_main_class_inputs["initial_estimates"]
@@ -74,3 +76,84 @@ def test_fit(mock_main_class_inputs, precomputed_initial_est_mask):
                 assert pred[col].notna().all(), f"{type_}: {col} is all missing"
             assert f"mean_bootstrap_{suffix}" in pred.columns
         assert "CI_lower" in pred.columns and "CI_upper" in pred.columns
+
+
+@pytest.mark.parametrize(
+    "custom_models_mask",
+    [
+        ([True, True, True]),
+        ([True, False, True]),
+        ([True, True, False]),
+        ([False, True, True]),
+        ([False, False, False]),
+    ],
+)
+@pytest.mark.slow
+def test_fit_with_custom_models(mock_main_class_inputs, custom_models_mask):
+    df = mock_main_class_inputs["data"][["event_time", "event_indicator", "group", "x1", "x2", "x3"]]
+
+    # test if method works for different sets of custom models
+    models = None
+    labtrans = None
+    censoring_models = None
+    censoring_labtrans = None
+    propensity_score_models = None
+
+    if custom_models_mask[0]:
+        propensity_score_models = [SVC(), RandomForestClassifier()]
+    if custom_models_mask[1]:
+        dh_model, lt = vanilla_deephit(labtrans=None, 
+                                        event_indicator=df["event_indicator"].values, 
+                                        event_times=df["event_time"].values, 
+                                        input_size=4)
+        models = [dh_model]
+        labtrans = [lt]
+        
+    if custom_models_mask[2]:
+        dh_model_cens, lt_cens = vanilla_deephit(labtrans=None, 
+                                event_indicator=(df["event_indicator"]==0).values, 
+                                event_times=df["event_time"].values, 
+                                input_size=4)
+        censoring_models = [dh_model_cens]
+        censoring_labtrans = [lt_cens]
+
+    tmle = PyTMLE(
+        data=df, target_times=[1.0, 2.0, 3.0],
+    )
+
+    def tmle_fit():
+        tmle.fit(
+            max_updates=100,
+            models = models,
+            labtrans = labtrans,
+            censoring_models = censoring_models,
+            censoring_labtrans = censoring_labtrans,
+            propensity_score_models = propensity_score_models,
+            cv_folds=2,
+    )
+
+    if models is None and censoring_models is not None:
+        with pytest.raises(ValueError, match="Also provide 'models' when specifying 'censoring_models'"):
+            # passing censoring_models, but not models is not supported
+            tmle_fit()
+    elif models is not None and censoring_models is None:
+        with pytest.raises(RuntimeError, match="Pass censoring_models separately if there are more than two event types"):
+            # censoring models need to be passed separately because there are two event types
+            tmle_fit()
+    elif models is not None:
+        tmle_fit()
+
+        # check that only DeepHit was fitted, not the other learners from the default library
+        fitted_models_df = tmle.state_learner_cv_fit
+        assert ("DeepHit" in list(fitted_models_df["risks_model"])) and ("DeepHit" in list(fitted_models_df["censoring_model"]))
+        assert ("CoxPHSurvivalAnalysis" not in list(fitted_models_df["risks_model"])) and ("CoxPHSurvivalAnalysis" not in list(fitted_models_df["censoring_model"]))
+        assert ("RandomSurvivalForest" not in list(fitted_models_df["risks_model"])) and ("RandomSurvivalForest" not in list(fitted_models_df["censoring_model"]))
+    else:
+        tmle_fit()
+
+        # check that the default library was fitted
+        fitted_models_df = tmle.state_learner_cv_fit
+        assert ("DeepHit" in list(fitted_models_df["risks_model"])) and ("DeepHit" in list(fitted_models_df["censoring_model"]))
+        assert ("CoxPHSurvivalAnalysis" in list(fitted_models_df["risks_model"])) and ("CoxPHSurvivalAnalysis" in list(fitted_models_df["censoring_model"]))
+        assert ("RandomSurvivalForest"  in list(fitted_models_df["risks_model"])) and ("RandomSurvivalForest"  in list(fitted_models_df["censoring_model"]))
+
