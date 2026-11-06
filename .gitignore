@@ -8,3 +8,5 @@ build/
 mlruns/
 mlartifacts/
 simulation-study-copilot/
+sandbox/
+sandbox.toml

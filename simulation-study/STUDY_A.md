@@ -211,8 +211,10 @@ it means something.
   differently.
 - **Positivity is comfortable throughout.** Study B's cross-calibration shows
   Study A operates at its `OV1` rung, so nothing here speaks to the
-  near-violation regime; that is Study B's subject and the two compose rather
-  than overlap.
+  near-violation regime. That limitation is addressed directly by
+  [STUDY_A_OV3.md](STUDY_A_OV3.md), which repeats C1/C2/C3/C5/C7 at n = 250/500
+  with `gamma` raised to Study B's `OV3` value while holding this study's
+  estimand and target times fixed.
 - **`gcomp` has no standard error** in either implementation, by design, so it
   appears in the bias tables only.
 - **concrete runs 150 replicates against PyTMLE's 500**, so its Monte Carlo SE is

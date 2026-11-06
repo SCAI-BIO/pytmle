@@ -406,6 +406,14 @@ CONFIGS: dict[str, DGPParams] = {
     # control-resampling device forces on the truth. That device is retained only
     # in the adjcuminc_* configs, where faithful reproduction requires it.
     "threshold": _THRESHOLD,
+    # Study A-OV3: Study A's threshold family under Study B's OV3
+    # treatment-positivity condition (gamma = (2.0, -1.6, 1.2), the OV3 rung).
+    # gamma enters treatment assignment only, so the estimand is unchanged and
+    # the closed-form truth is bit-identical to "threshold" at any fixed tau.
+    # Named rather than a per-cell params_override because runner.run_cell
+    # records `config` but not `params_override` in meta.json, and
+    # report.summarise_dir resolves truth from the config name alone.
+    "threshold_ov3": _THRESHOLD.with_(gamma=np.array([2.0, -1.6, 1.2])),
     # Validation ladder, reproducing the reference study's four scenarios.
     # Scenarios 3-4 carry their non-linearity. Their code writes it as
     # ``exp(ifelse(x3 > 1, 2, -2))`` and the paper as ``lambda_{k,0} = 2`` with a

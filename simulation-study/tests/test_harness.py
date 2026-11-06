@@ -381,3 +381,23 @@ def test_load_cell_includes_concrete(tmp_path):
 
     got = load_cell(d)
     assert set(got["estimator"]) == {"tmle", "tmle (concrete)"}
+
+
+def test_markdown_table_fallback_handles_missing_and_floats():
+    """The report must not require pandas' optional `tabulate` dependency.
+
+    `to_markdown` raises ImportError when tabulate is absent, and tabulate is
+    not in environment.yml. The fallback keeps the Markdown deliverable
+    reproducible in the provided environment.
+    """
+    from sim.tables import _to_markdown
+
+    df = pd.DataFrame({
+        "cell": ["C3_OV3_n250"],
+        "bias": [0.123456],
+        "coverage": [np.nan],
+    })
+    lines = _to_markdown(df).splitlines()
+    assert lines[0] == "| cell | bias | coverage |"
+    assert "0.1235" in lines[2]
+    assert lines[2].endswith("|  |")

@@ -110,6 +110,13 @@ cause-specific biases run opposite-signed and must never be pooled.
 **Threshold.** `u = 1{w_cont > c}` with `c = 1` in `base` (`P(u = 1) = 0.16`) and
 `c = 0` in `threshold` (`P(u = 1) = 0.50`).
 
+**Composition config.** `threshold_ov3` is the `threshold` family with only
+`gamma` replaced by Study B's OV3 value `(2.0, -1.6, 1.2)`. `gamma` enters
+treatment assignment only, so the estimand and its closed-form truth are
+bit-identical to `threshold`; the configuration exists so Study A's
+specification cells can be run under OV3 overlap without moving the estimand.
+See [STUDY_A_OV3.md](STUDY_A_OV3.md).
+
 ---
 
 # Study A's levers: misspecification
