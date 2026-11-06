@@ -26,7 +26,7 @@
 # concrete is compared on the *targeting increment* (tmle - gcomp) rather than
 # the CIF level: the two build different time grids, which shifts the plug-in by
 # ~1e-3 in both estimators alike and has nothing to do with the update step
-# (FINDINGS 8).
+# (FINDINGS 7).
 
 name: study_c
 description: >

@@ -133,9 +133,9 @@ se_rr = sqrt(mean((IC1 / R0 - IC0 * R1 / R0**2)**2) / n)
   buys those guarantees, and it is the reason the two estimators differ in finite
   samples even when they agree asymptotically.
 - **It does not iterate.** The correction is evaluated once, at the initial
-  estimates. Whether that is enough is a second-order question, and the
-  divergence between the two estimators under a badly misspecified `Q` was what
-  first exposed the targeted-update defect in FINDINGS 9.
+  estimates. Whether that is enough is a second-order question, and Study C
+  measures the one-step against `tmle` in the cells where both should be
+  consistent.
 - **It does not re-estimate anything.** `pi`, `G` and the hazards are whatever
   was injected, so `aipw` and `tmle` see byte-identical nuisances by
   construction.
@@ -156,6 +156,5 @@ anticipated.
 The stronger internal check is behavioural rather than numerical. Across Study A
 the one-step is unbiased in exactly the cells double robustness predicts — clean
 wherever `Q` is correct *or* both `g` components are, biased only in C6–C8 — and
-its agreement with `tmle` after the FINDINGS 9 fix, in cells where both should be
-consistent, is what confirms that the shared-EIF construction is doing what it
-claims.
+its agreement with `tmle`, in cells where both should be consistent, is what
+confirms that the shared-EIF construction is doing what it claims.

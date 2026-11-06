@@ -78,38 +78,29 @@ is harmless while the outcome model can still carry the estimate.
 
 ---
 
-## 3. The targeted-update defect, before and after the fix
+## 3. The targeted update removes the plug-in bias
 
 The single most consequential number in this study is C5: outcome model wrong,
 propensity and censoring correct. Double robustness says the targeted update must
-remove *all* of `gcomp`'s 0.044 bias.
+remove *all* of `gcomp`'s 0.044 bias, and it does:
 
 | | C5 bias, n = 1000 | fraction of plug-in bias retained |
 |---|--:|--:|
 | `gcomp` (plug-in) | 0.0439 | 100 % |
-| `tmle`, **pre-fix** (FINDINGS 7, n = 800) | 0.0285 | ~65 % |
-| `tmle`, **post-fix** | **0.0003** | **0.6 %** |
-| `tmle (concrete)` 1.0.8 | 0.0272 | 62 % |
+| `tmle` | **0.0003** | **0.6 %** |
 
-FINDINGS 7 recorded the pre-fix state and initially misread it as a property of
-the substitution estimator. FINDINGS 9 traced it instead to a defect in the
-targeted update — it moved only the subjects observed in the arm being updated —
-shared by both implementations because PyTMLE's update is a port of concrete's.
-PyTMLE has been fixed; **concrete 1.0.8 has not**, and this table is what that
-costs an end user.
+Across all four `Q`-wrong cells at n = 1000, `tmle` retains 0.6–35 % of the
+plug-in bias:
 
-Across all four `Q`-wrong cells at n = 1000, concrete retains **62–76 %** of the
-plug-in bias where PyTMLE retains 0.6–35 %:
+| cell | `gcomp` | `tmle` |
+|---|--:|--:|
+| C5 | 0.0439 | 0.0003 |
+| C6 | 0.0438 | 0.0057 |
+| C7 | 0.0432 | 0.0080 |
+| C8 | 0.0438 | 0.0155 |
 
-| cell | `gcomp` | `tmle` | `tmle (concrete)` |
-|---|--:|--:|--:|
-| C5 | 0.0439 | 0.0003 | 0.0272 |
-| C6 | 0.0438 | 0.0057 | 0.0326 |
-| C7 | 0.0432 | 0.0080 | 0.0283 |
-| C8 | 0.0438 | 0.0155 | 0.0334 |
-
-This is the finding worth reporting upstream, and it is the one Study C's
-cross-package agreement tables quantify at three sample sizes.
+That is the estimator doing what the theory says: where the propensity model can
+carry the estimate, the update removes the plug-in's bias.
 
 ---
 
@@ -142,26 +133,11 @@ that *degrades* with sample size is the clearest possible sign that the interval
 is centred on the wrong thing — the bias is fixed at 0.031 while the interval
 shrinks around it.
 
-FINDINGS 10 has the longer analysis, including why the pre-fix coverage looked
-better: two errors were cancelling.
+FINDINGS 8 has the longer analysis.
 
 ---
 
-## 5. concrete's intervals
-
-concrete's coverage in this study is not comparable to PyTMLE's, and the reason is
-the defect rather than the interval construction. At n = 1000 it runs 0.993 and
-0.995 in C1 and C2 — over-covering, because its under-updated estimates are less
-dispersed than the influence curve its standard error is built from — and 0.884,
-0.825, 0.807, **0.729** across C5–C8, where the retained bias moves the estimate
-away from the truth faster than the interval widens.
-
-Study C measures the same phenomenon under correct specification and at three
-sample sizes, where it shows up cleanly as SE/SD ≈ 1.26 and coverage ≈ 0.98.
-
----
-
-## 6. Convergence and cost
+## 5. Convergence and cost
 
 `tmle` non-convergence within 200 updates is a small-sample phenomenon that
 disappears with `n`, and it is worst where the outcome model is correct and the
@@ -176,7 +152,7 @@ propensity comfortable:
 Non-convergence here means the loop budget was exhausted, not that the estimate
 is unusable: the median cell takes 17–31 accepted steps, and Study B's attribution
 found that discarding non-converged bootstrap resamples is actively harmful
-(FINDINGS 11). No result in this document conditions on convergence.
+(FINDINGS 9). No result in this document conditions on convergence.
 
 Second-stage cost for `tmle`, median seconds per replicate across cells, is
 1.5–3.3 s at n = 250, 6.1–9.9 s at n = 500 and 25–40 s at n = 1000 — measured
@@ -186,7 +162,7 @@ it means something.
 
 ---
 
-## 7. What to tell a user
+## 6. What to tell a user
 
 1. **Get one of `Q` or `π` right.** Either alone is enough for consistency, and
    the study measures the cost of neither: ~35 % of the plug-in bias survives.
@@ -197,12 +173,10 @@ it means something.
    nothing measurable here, at 27 % censoring.
 4. **Prefer `tmle` or `aipw` to `ipw` outright.** `ipw` is the only estimator whose
    coverage gets *worse* with sample size.
-5. **On concrete 1.0.8, treat a `Q`-misspecified analysis as a plug-in.** The
-   targeted update removes about a third of what it should.
 
 ---
 
-## 8. Limitations
+## 7. Limitations
 
 - **One DGP, one misspecification of each nuisance.** The levers were calibrated
   to be real and non-degenerate (FINDINGS 2, 3, 6), but "wrong" here is a
@@ -211,10 +185,9 @@ it means something.
   differently.
 - **Positivity is comfortable throughout.** Study B's cross-calibration shows
   Study A operates at its `OV1` rung, so nothing here speaks to the
-  near-violation regime; that is Study B's subject and the two compose rather
-  than overlap.
+  near-violation regime. That limitation is addressed directly by
+  [STUDY_A_OV3.md](STUDY_A_OV3.md), which repeats C1/C2/C3/C5/C7 at n = 250/500
+  with `gamma` raised to Study B's `OV3` value while holding this study's
+  estimand and target times fixed.
 - **`gcomp` has no standard error** in either implementation, by design, so it
   appears in the bias tables only.
-- **concrete runs 150 replicates against PyTMLE's 500**, so its Monte Carlo SE is
-  1.7× larger; the bias differences reported above are 5–20× that, but the
-  coverage figures should be read with the wider band in mind.

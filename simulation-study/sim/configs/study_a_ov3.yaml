@@ -1,0 +1,59 @@
+# Study A-OV3: five of Study A's eight Q/pi/G cells under Study B's OV3
+# treatment-positivity condition.
+#
+#   python -m sim.run --config sim/configs/study_a_ov3.yaml \
+#       --output-dir results/study_a_ov3 --report
+#
+# The only change from study_a_dr.yaml is the DGP: `threshold_ov3` is the
+# `threshold` family with gamma = (2.0, -1.6, 1.2), Study B's OV3 assignment
+# strength. gamma enters treatment assignment only, so the estimand is
+# bit-identical to Study A's. target_times are PINNED to Study A's exact values
+# (from results/study_a/*/meta.json), never re-derived -- re-deriving them under
+# OV3 would move the estimand and confound the overlap axis with tau.
+#
+# C1 is the all-correct reference under OV3; C2 keeps the G-wrong-only contrast;
+# C3 (Q correct, pi wrong) and C5 (Q wrong, pi correct) are the two mandatory
+# singly-robust channels, where double robustness must carry the estimate; C7
+# (Q and pi both wrong) is the no-guarantee bound.
+#
+# Estimators are the four Wald arms only: no concrete, no bootstrap, no oracle.
+# concrete_reps: 0 is explicit -- concrete is not installed in this environment
+# and is not part of this question.
+#
+# Cell names MUST start with the C<k> token and contain exactly one "_n":
+# tables._prep uses name.split("_")[0] and name.split("_n")[1], and plots._cells
+# uses int(c[1:]). `C3_OV3_n250` parses; `OV3_C3_n250` breaks every figure.
+# Output must be a separate directory from Study A's, because cells share C<k>
+# and n and the reporters strip the OV3 token.
+#
+# Run pilots in a DIFFERENT output directory. Resume skips any existing
+# shard_*.parquet, so a pilot's shard in this directory would make the full run
+# silently skip the replicates it already wrote.
+
+name: study_a_ov3
+description: >
+  Five cells of Study A's Q/pi/G specification factorial under Study B's OV3
+  treatment-positivity condition, at two sample sizes, with Study A's target
+  times pinned and Wald intervals only.
+
+defaults:
+  config: threshold_ov3
+  reps: 500
+  estimators: [tmle, gcomp, aipw, ipw]
+  concrete_reps: 0
+  min_nuisance: 0.01
+  max_updates: 200
+  target_times: [0.513946, 1.149562, 2.66982]
+
+cells:
+  - {name: C1_OV3_n250, n: 250, spec: {Q: correct, pi: correct, G: correct}}
+  - {name: C2_OV3_n250, n: 250, spec: {Q: correct, pi: correct, G: wrong}}
+  - {name: C3_OV3_n250, n: 250, spec: {Q: correct, pi: wrong, G: correct}}
+  - {name: C5_OV3_n250, n: 250, spec: {Q: wrong, pi: correct, G: correct}}
+  - {name: C7_OV3_n250, n: 250, spec: {Q: wrong, pi: wrong, G: correct}}
+
+  - {name: C1_OV3_n500, n: 500, spec: {Q: correct, pi: correct, G: correct}}
+  - {name: C2_OV3_n500, n: 500, spec: {Q: correct, pi: correct, G: wrong}}
+  - {name: C3_OV3_n500, n: 500, spec: {Q: correct, pi: wrong, G: correct}}
+  - {name: C5_OV3_n500, n: 500, spec: {Q: wrong, pi: correct, G: correct}}
+  - {name: C7_OV3_n500, n: 500, spec: {Q: wrong, pi: wrong, G: correct}}

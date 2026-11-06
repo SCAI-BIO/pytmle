@@ -23,7 +23,7 @@ artefact". It is not. Pinning both sides to one thread and serialising them
 roughly halves *both* times -- contention was costing them about equally -- and
 the ratio moves only from ~3.8x to 3.26x at n = 500. PyTMLE is genuinely slower
 than concrete per fit, by 3.3x at n = 500 rising to 4.4x at n = 2000, and the
-fair comparison establishes that rather than explaining it away. See FINDINGS 15.
+fair comparison establishes that rather than explaining it away. See FINDINGS 13.
 
 This module fixes both, and **verifies rather than assumes** that it did:
 

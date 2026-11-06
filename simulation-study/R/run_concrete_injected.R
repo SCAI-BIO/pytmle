@@ -60,7 +60,7 @@ taus <- as.numeric(read_parquet(file.path(DIR, "taus.parquet"))$time)
 # is worth ~0.0012 mean / 0.0033 max in the CIF level -- and it moves `gcomp` and
 # `tmle` together, since it is not a property of the targeting step. The clean
 # comparison of the *algorithms* is the targeting increment `tmle - gcomp`, which
-# agrees ~6x more tightly. See FINDINGS 8.
+# agrees ~6x more tightly. See FINDINGS 7.
 step_at <- function(mat, from_grid, to_grid) {
   idx <- findInterval(to_grid, from_grid)
   idx[idx < 1] <- 1

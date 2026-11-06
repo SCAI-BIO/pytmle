@@ -26,12 +26,44 @@ _CELL_SPEC = {
 _ORDER = ["gcomp", "ipw", "aipw", "tmle", "tmle (concrete)"]
 
 
+def _fmt_cell(v) -> str:
+    """One Markdown cell. Missing values become empty, floats use ``floatfmt``."""
+    if v is None:
+        return ""
+    try:
+        if pd.isna(v):
+            return ""
+    except (TypeError, ValueError):
+        pass
+    if isinstance(v, (float, np.floating)):
+        return format(float(v), ".4f")
+    return str(v)
+
+
+def _to_markdown(df: pd.DataFrame) -> str:
+    """Minimal pipe table, used when pandas' optional ``tabulate`` is absent.
+
+    ``DataFrame.to_markdown`` raises ``ImportError`` without tabulate. The
+    tables are a deliverable, so the report must not depend on an optional
+    package that the environment file does not list.
+    """
+    cols = [str(c) for c in df.columns]
+    lines = ["| " + " | ".join(cols) + " |",
+             "|" + "|".join("---" for _ in cols) + "|"]
+    for row in df.itertuples(index=False, name=None):
+        lines.append("| " + " | ".join(_fmt_cell(v) for v in row) + " |")
+    return "\n".join(lines)
+
+
 def _emit(df: pd.DataFrame, stem: Path, title: str, note: str = "") -> list[Path]:
     stem.parent.mkdir(parents=True, exist_ok=True)
     csv = stem.with_suffix(".csv")
     md = stem.with_suffix(".md")
     df.to_csv(csv, index=False)
-    body = df.to_markdown(index=False, floatfmt=".4f")
+    try:
+        body = df.to_markdown(index=False, floatfmt=".4f")
+    except ImportError:
+        body = _to_markdown(df)
     md.write_text(f"# {title}\n\n" + (f"{note}\n\n" if note else "") + body + "\n")
     return [md, csv]
 

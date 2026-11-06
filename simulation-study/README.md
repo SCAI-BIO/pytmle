@@ -39,6 +39,7 @@ the committed results, on a 20-core machine:
 |---|---|---|---|---|
 | validation gate | 4 scenarios + 8 rung-4 cells | 720 R + 3 200 Python | not separately measured | 401 MB |
 | **A** — double robustness | 24 | 12 000 + 3 600 concrete | **63** | 44 MB |
+| **A-OV3** — double robustness under overlap stress | 10 | 5 000 | **39** | 20 MB |
 | **B** — interval coverage | 53 | 36 600 | **789** | 69 MB |
 | **C** — cross-package | 3 sizes | 1 150 | ~10 | **~27 GB** |
 
@@ -128,6 +129,28 @@ Smoke test first if you like — two cells, 12 replicates, tables printed to std
 python -m sim.run --config sim/configs/study_a_dr.yaml \
     --output-dir results/pilot --cells C1_n250 C5_n250 --reps 12 --summarise
 ```
+
+### Study A-OV3 — double robustness under overlap stress
+
+A focused extension of Study A: five of its specification cells (C1, C2, C3, C5,
+C7) under Study B's `OV3` treatment-positivity condition. The DGP is Study A's
+`threshold` family with only `gamma` replaced by OV3's `(2.0, -1.6, 1.2)`; gamma
+enters treatment assignment only, so the estimand is unchanged and the target
+times are pinned to Study A's exact values. C3 (π wrong) and C5 (Q wrong) are the
+two singly-robust channels the sub-study exists to test.
+
+```bash
+python -m sim.run --config sim/configs/study_a_ov3.yaml \
+    --output-dir results/study_a_ov3 --n-jobs 8 --report
+```
+
+Wald intervals only — no `concrete`, no bootstrap, no oracle arm. The four
+estimators are `tmle`, `gcomp`, `aipw` and `ipw`, at n = 250 and 500 with 500
+replicates each. Outputs use the same filenames as Study A, under
+`results/study_a_ov3/`; the figures label cells `C1`, `C3`, … without an OV3 tag,
+so the directory and [STUDY_A_OV3.md](STUDY_A_OV3.md) carry that context. Run
+pilots in a separate directory: resume skips existing shards, so a pilot shard
+in the study directory would silently drop replicates from the full run.
 
 ### Study B — where confidence intervals fail
 
@@ -236,6 +259,7 @@ resumes rather than restarting.
 | study | tables | figures |
 |---|---|---|
 | A | `results/study_a/tables/study_a_{bias_rd, coverage_rd, detail_rd, diagnostics, runtimes}.{csv,md}` | 5, in `results/study_a/figures/` |
+| A-OV3 | `results/study_a_ov3/tables/study_a_{bias_rd, coverage_rd, detail_rd, diagnostics, runtimes}.{csv,md}` | 5, in `results/study_a_ov3/figures/` |
 | B | `results/study_b/study_b_{performance, conditions, breakpoints, type_i_error, attribution, failures}.csv` | 8, in `results/study_b/figures/` |
 | C | `results/study_c/study_c_{agreement, agreement_summary, performance, score, runtime}.{csv,md}` plus `study_c_{estimates,eic}.parquet` | one per agreement quantity, plus performance, score and runtime, in `results/study_c/figures/` |
 
@@ -278,9 +302,10 @@ completed unit. Study B's chunk size is pinned per cell on purpose: re-chunking 
 cell that already has shards would re-index them and silently recompute
 replicates it already holds.
 
-Study A and B write per-cell directories, `results/<study>/<cell>/`, holding
-`shard_*.parquet`, `concrete.parquet` where concrete ran, and a `meta.json`
-recording the config, spec, target times and `min_nuisance` actually used.
+Studies A, A-OV3 and B write per-cell directories, `results/<study>/<cell>/`,
+holding `shard_*.parquet`, `concrete.parquet` where concrete ran, and a
+`meta.json` recording the config, spec, target times and `min_nuisance` actually
+used.
 
 A Study B cell with `n_bootstrap > 0` also writes `draws_*.parquet` — the **raw
 bootstrap draws**, one row per (resample, estimand, event, tau, arm), with the
@@ -323,6 +348,7 @@ tests/           harness unit tests
 |---|---|
 | [DGP.md](DGP.md) | the data-generating process and every lever, for Studies A and B |
 | [STUDY_A.md](STUDY_A.md) | Study A's results: double robustness, and what it does *not* buy |
+| [STUDY_A_OV3.md](STUDY_A_OV3.md) | Study A's specification cells under Study B's OV3 overlap stress |
 | [STUDY_B.md](STUDY_B.md) | Study B's results: where intervals fail, and what fixes them |
 | [STUDY_C.md](STUDY_C.md) | Study C's results: agreement with `concrete`, and the runtime cost |
 | [BOOTSTRAP_FAILURES.md](BOOTSTRAP_FAILURES.md) | the three bootstrap failure modes and how they are attributed |

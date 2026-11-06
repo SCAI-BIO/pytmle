@@ -37,18 +37,18 @@ that is a comparison along a row.
 | comparison | tier | quantity | unit | n=500 | n=1000 | n=2000 | shrink |
 |---|--:|---|---|--:|--:|--:|--:|
 | gcomp (concrete) vs gcomp | 1 | point estimate | abs. diff | 7.9e-04 | 3.9e-04 | 1.9e-04 | 0.24 |
-| tmle (concrete) vs tmle | 1 | point estimate | abs. diff | 1.1e-02 | 7.2e-03 | 4.9e-03 | 0.46 |
+| tmle (concrete) vs tmle | 1 | point estimate | abs. diff | 1.9e-04 | 5.8e-05 | 2.0e-05 | 0.11 |
 | ate:AIPTW vs aipw | 2 | point estimate | abs. diff | 1.0e-04 | 4.9e-05 | 2.3e-05 | 0.23 |
 | ate:GFORMULA vs gcomp | 2 | point estimate | abs. diff | 1.0e-04 | 4.9e-05 | 2.3e-05 | 0.23 |
 | ate:IPTW vs ipw | 2 | point estimate | abs. diff | 1.6e-05 | 6.8e-06 | 3.2e-06 | 0.20 |
-| tmle (concrete) vs tmle | 1 | **standard error** | abs. log ratio | 6.6e-04 | 3.3e-04 | 1.6e-04 | 0.24 |
+| tmle (concrete) vs tmle | 1 | **standard error** | abs. log ratio | 6.9e-04 | 3.3e-04 | 1.6e-04 | 0.24 |
 | ate:AIPTW vs aipw | 2 | **standard error** | abs. log ratio | 6.0e-03 | 3.8e-03 | 2.4e-03 | 0.40 |
 | ate:IPTW vs ipw | 2 | **standard error** | abs. log ratio | **0.134** | **0.130** | **0.128** | **0.96** |
-| tmle (concrete) vs tmle | 1 | **score (PnEIC)** | abs. diff | 2.2e-05 | 2.6e-06 | 2.4e-06 | 0.11 |
+| tmle (concrete) vs tmle | 1 | **score (PnEIC)** | abs. diff | 2.3e-05 | 3.0e-06 | 2.4e-06 | 0.10 |
 
 `shrink` is the largest sample size's discrepancy over the smallest's, and it is
 the column that does the work: **a numerical difference decays with `n`, a
-structural one does not.** Eight rows sit between 0.10 and 0.46. One sits at 0.96,
+structural one does not.** Eight rows sit between 0.10 and 0.40. One sits at 0.96,
 and that is the finding.
 
 ---
@@ -77,20 +77,18 @@ over the update is ~7.7× at n = 500 rising to ~9.0× at n = 2000, again matched
 between the two.
 
 This is the strongest validation result in the harness, and it is what licenses
-reading the point-estimate divergence below as a *targeting* difference rather
+reading the point-estimate comparison below as a *targeting* comparison rather
 than a bridge or an input difference.
 
 ---
 
 ## 3. Standard errors: one agreement and one disagreement
 
-**concrete: agrees three orders of magnitude better than the point estimate.**
-Mean absolute log ratio 6.6e-04 → 1.6e-04. That is the expected shape and it is
-worth stating why: the FINDINGS 9 defect moves `Psi` through the targeted update
-but never touches the influence curve, so the two packages' standard errors are
-built from the same object even where their estimates diverge. `TIERS` pins
-`tol_se = 2e-3` with `expect_se = "agree"` for this pair, separately from the
-point estimate's `expect = "diverge"`.
+**concrete: agrees at the same order as the point estimate.** Mean absolute log
+ratio 6.9e-04 → 1.6e-04, shrinking as O(1/n). Both packages build the influence
+curve with the same formula, so the standard errors agree independently of the
+targeting update. `TIERS` pins `tol_se = 2e-3` with `expect_se = "agree"` for
+this pair.
 
 **`ipw`: a stable ~13 % gap that does not shrink, and PyTMLE is on the wrong side
 of it.** The point estimates agree to 1.6e-05; the standard errors differ by
@@ -112,7 +110,7 @@ influence function. An IPW estimator using *estimated* propensities has a smalle
 asymptotic variance than the same estimator with the true ones, so treating them
 as known overstates it. The τ dependence confirms the mechanism: the overstatement
 grows with the evaluation time, because `G` is also treated as known and matters
-more the further out the evaluation goes. See FINDINGS 14.
+more the further out the evaluation goes. See FINDINGS 12.
 
 `aipw` against `ate:AIPTW`, on the same fitted models, shrinks as O(1/n) and stays
 inside 1e-2 throughout — so this is specific to the IPW influence function, not to
@@ -120,36 +118,30 @@ the bridge.
 
 ---
 
-## 4. Point estimates: the targeting increment, and what concrete's update costs
+## 4. Point estimates: concrete agrees on the targeting increment
 
-`gcomp` agrees across packages to 7.9e-04 and tightens to 1.9e-04. `tmle` does
-not: 1.1e-02 falling only to 4.9e-03. Since the plug-in agrees and the score
-agrees, the difference is in the update itself, and it is the expected result
-rather than a defect in the harness — concrete 1.0.8 still carries the
-`g.star.obs` defect that PyTMLE has fixed (FINDINGS 9). The comparison is made on
-the **targeting increment** `tmle - gcomp` rather than the CIF level, because the
-two build different time grids and that shifts the plug-in by ~1e-3 in both
-estimators alike (FINDINGS 8).
+`gcomp` agrees across packages to 7.9e-04 and tightens to 1.9e-04. `tmle` agrees
+on the **targeting increment** `tmle - gcomp` to 1.9e-04 at n = 500, tightening
+to 2.0e-05 at n = 2000. The increment is the comparison of record rather than the
+CIF level, because the two build different time grids and that shifts the plug-in
+by ~1e-3 in both estimators alike (FINDINGS 7).
 
-Under *correct* specification the defect costs concrete almost nothing in bias
-— −0.0009 against PyTMLE's −0.0011 at n = 500 — but it shows up clearly in the
-dispersion:
+Under *correct* specification the two implementations track each other in both
+bias and dispersion. Cause-1 risk difference, event 1, τ = 3.12:
 
 | estimator | n | bias | empirical SD | SE/SD | coverage |
 |---|--:|--:|--:|--:|--:|
-| `gcomp` | 500 | −0.0021 | 0.0277 | — | — |
-| `tmle` | 500 | −0.0011 | 0.0379 | **0.993** | **0.950** |
-| `tmle (concrete)` | 500 | −0.0009 | **0.0301** | **1.271** | **0.981** |
-| `tmle` | 2000 | 0.0002 | 0.0194 | 0.971 | 0.940 |
-| `tmle (concrete)` | 2000 | 0.0006 | **0.0158** | **1.211** | **0.987** |
+| `gcomp` | 500 | −0.0020 | 0.0277 | — | — |
+| `tmle` | 500 | −0.0005 | 0.0379 | 1.009 | 0.960 |
+| `tmle (concrete)` | 500 | 0.0002 | 0.0376 | 1.018 | 0.960 |
+| `gcomp` | 1000 | −0.0009 | 0.0205 | — | — |
+| `tmle` | 1000 | −0.0002 | 0.0278 | 0.973 | 0.950 |
+| `tmle (concrete)` | 1000 | 0.0001 | 0.0277 | 0.976 | 0.946 |
 
-concrete's estimates are **under-dispersed** — its empirical SD sits much closer to
-the plug-in's (0.0301 against `gcomp`'s 0.0277) than to a fully updated
-estimator's (0.0379). Its standard error, computed from the same influence curve
-as PyTMLE's and agreeing with it to 1.6e-04, therefore describes a spread its
-estimates do not have, and the interval over-covers at 0.98. So an under-updated
-TMLE looks *better* on coverage while being closer to a plug-in — which is exactly
-the reading Study B's SE/SD panel exists to prevent.
+concrete's empirical SD now matches a fully updated estimator's (0.0376 against
+0.0379 at n = 500), and its SE/SD and coverage are indistinguishable from
+PyTMLE's. The two implementations are doing the same update on the same nuisances;
+the small remaining differences are numerical.
 
 `riskRegression::ate` agrees with PyTMLE's corresponding estimators to 1.0e-04 or
 better on every point estimate, tightening as O(1/n) — a tier-2 comparison against
@@ -222,24 +214,20 @@ upstream changes to `pytmle`, specified but not applied here.
 > stored outputs were backfilled from `python_eic.parquet`, which had it right all
 > along.
 
-See FINDINGS 15.
+See FINDINGS 13.
 
 ---
 
 ## 6. What to tell a user
 
 1. **The port is faithful.** Same estimating equation, solved to the same
-   tolerance, with standard errors agreeing to ~1e-04. Where the point estimates
-   differ, the difference is concrete's unfixed defect, not PyTMLE's.
+   tolerance, with point estimates, standard errors and scores agreeing across all
+   three sample sizes.
 2. **PyTMLE's second stage is 3–4× slower than concrete's**, and the gap grows
-   with `n`. Roughly a third of that is evaluating on a finer grid, which is a
-   choice with a cost rather than an inefficiency.
+   with `n`. None of that is grid size; it is per-cell cost.
 3. **Do not use `ipw`'s interval as a yardstick.** It is ~13 % too wide and
    over-covers; its coverage should be read as "over-covers because the SE is
    wrong", not as good calibration.
-4. **A high coverage number is not automatically the better one.** concrete's
-   0.98 here comes from under-dispersed estimates against a correctly computed
-   standard error, which is a worse position than PyTMLE's 0.95.
 
 ---
 
