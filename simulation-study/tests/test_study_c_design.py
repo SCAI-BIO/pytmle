@@ -1,9 +1,8 @@
 """Study C gates: the score, the standard error, and a runtime worth quoting.
 
 Study C compared point estimates and nothing else. Two implementations can agree
-on `Psi` while solving different estimating equations -- FINDINGS 9 is exactly
-that -- so the score `Pn D*` was added, along with the standard error, and a
-benchmark that is actually matched.
+on `Psi` while solving different estimating equations, so the score `Pn D*` was
+added, along with the standard error, and a benchmark that is actually matched.
 
 Every test here pins something that has already gone wrong once, or that would
 go wrong silently if it did:
@@ -156,7 +155,7 @@ def test_se_is_compared_as_a_ratio_not_a_difference():
 
 
 def test_the_targeting_increment_is_only_used_for_the_point_estimate():
-    """It cancels the FINDINGS 8 grid offset, which is a property of the level.
+    """It cancels the FINDINGS 7 grid offset, which is a property of the level.
 
     For the SE and the score it is undefined -- `gcomp` has no SE in either
     package -- so those must fall through to a level comparison rather than

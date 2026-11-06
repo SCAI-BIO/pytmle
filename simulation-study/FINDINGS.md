@@ -169,92 +169,7 @@ summaries, and switching to them changed which configurations looked acceptable.
 
 ---
 
-## 7. TMLE's substitution estimator retains ~35 % of plug-in bias where the one-step retains ~10 %
-
-**Status:** **traced to a defect in the targeted update, shared by PyTMLE and
-concrete.** An earlier version of this section called it "a property of the
-algorithm, not of PyTMLE ... a *result*, not a defect". That was wrong, and
-section 9 below has the diagnosis and the one-line experiment that settles it.
-The measurements in this section stand; only their interpretation changes.
-
-In cell C5 (outcome model wrong, propensity and censoring both correct) double
-robustness says TMLE should be consistent -- and the one-step built from the same
-influence function, on the same injected nuisances, is clean. TMLE is not.
-
-Ruled out first, in order: the `min_nuisance` defect (finding 1 -- fixed, and the
-bound never binds here anyway); a nuisance mismatch between the two estimator
-paths (propensity, censoring survival and `nuisance_weight` compared elementwise,
-max\|diff\| = 0); and non-convergence (12/12 replicates converged, median 26 steps,
-\|\|PnEIC\|\| driven down 97.7 %, 108/108 targets meeting the stopping rule, zero
-weights at the truncation bound).
-
-The decisive test was to run **`concrete`'s second stage on byte-identical
-injected nuisances**. PyTMLE's targeted update is a port of concrete's, so
-agreement separates "the algorithm does this" from "the port does this".
-`R/run_concrete_injected.R` overwrites every component of concrete's `Estimates`
-object with the Python values and calls `getEIC` -> `doTmleUpdate` -> `getOutput`;
-`getInitialEstimate` runs once only, to obtain the scaffolding.
-
-Bias vs truth, 30 replicates, n = 800, identical nuisances:
-
-| event | tau | `aipw` | `gcomp` | `tmle` (PyTMLE) | `tmle` (concrete) |
-|---|---|---|---|---|---|
-| 1 | 0.51 | −0.0016 | +0.0303 | **+0.0183** | **+0.0188** |
-| 1 | 1.15 | −0.0001 | +0.0505 | **+0.0315** | **+0.0323** |
-| 1 | 2.67 | +0.0059 | +0.0578 | **+0.0375** | **+0.0392** |
-| 2 | 0.51 | −0.0014 | −0.0318 | **−0.0196** | **−0.0202** |
-| 2 | 1.15 | −0.0028 | −0.0471 | **−0.0298** | **−0.0306** |
-| 2 | 2.67 | −0.0160 | −0.0461 | **−0.0344** | **−0.0360** |
-
-Mean \|bias\|: `gcomp` 0.0439, **`tmle` 0.0285, `concrete` 0.0295**, `aipw` 0.0046.
-
-The two implementations agree to within 0.002 at every target (~4 % relative,
-inside Monte Carlo noise), with concrete marginally *more* biased. Both converged
-everywhere (concrete 180/180, median 39 steps).
-
-So under a badly misspecified `Q` with correct `g` at n = 800, the targeted
-substitution estimator removes ~35 % of the plug-in bias while the one-step built
-from the same influence function removes ~90 %. Both are first-order equivalent;
-the gap is the second-order remainder, which the substitution form carries and
-the additive correction does not.
-
-### Does it shrink? -- settled by Study A: no
-
-The calibration n-ladder (40 replicates at n = 400 / 800 / 1600) gave 0.0298 /
-0.0299 / 0.0239 and could not separate "slowly shrinking" from "persistent".
-Study A's full budget can. Bias in the cause-1 risk difference, C5, 500
-replicates per cell:
-
-| n | `gcomp` | `aipw` | `tmle` | `tmle (concrete)` |
-|---|---|---|---|---|
-| 250 | +0.0438 | +0.0024 | **+0.0283** | +0.0356 |
-| 500 | +0.0433 | −0.0001 | **+0.0274** | +0.0318 |
-| 1000 | +0.0439 | +0.0007 | **+0.0283** | +0.0272 |
-
-**The TMLE residual is flat in `n`.** Quadrupling the sample size moves it by
-under 4 %, where `1/sqrt(n)` predicts a halving; `aipw` over the same range falls
-to the Monte Carlo floor, and `gcomp` is flat as an asymptotically biased plug-in
-should be. concrete tracks PyTMLE at every `n` (the 250 gap is the largest at
-0.007, on 150 replicates against 500). So the ~35 % retained bias is an
-asymptotic property of the substitution form under this misspecification, not a
-second-order remainder that estimation noise was hiding.
-
-The same picture holds in C6-C8, and the `1/sqrt(n)` guide line in
-`results/figures/study_a_bias_vs_n_rd.png` makes it visible directly: `tmle` and
-`tmle (concrete)` run parallel to the horizontal in the whole bottom row while
-`aipw` descends.
-
-The consequence for inference is in the coverage table: because the interval
-width shrinks like `1/sqrt(n)` while the bias does not, Wald coverage in C5
-*degrades* with sample size -- 0.952 / 0.937 / 0.887 at n = 250 / 500 / 1000, and
-0.907 / 0.879 / 0.754 in C8. `aipw` holds 0.927 / 0.937 / 0.944 in C5. This is
-the natural setup for Study B.
-
-This is also the contrast the plan called the sharpest in the study: `tmle` and
-`aipw` share an identical influence function by construction, so the difference
-between them is purely the substitution step.
-
-## 8. PyTMLE and concrete agree on the *targeting*; the residual gap is grid discretisation
+## 7. PyTMLE and concrete agree on the *targeting*; the residual gap is grid discretisation
 
 **Status:** measured. It changes how the tier-1 agreement gate should be read,
 and it makes an assertion in `R/run_concrete_injected.R` false — now corrected
@@ -298,228 +213,23 @@ Two things identify it as discretisation rather than targeting:
 increment*, not the CIF level: at the level, a ~1e-3 disagreement is expected
 from the grid and would be there even if the two implementations were the same
 code. Quoting the level alone would either mask a real algorithmic difference of
-that size or manufacture one. Study A's PyTMLE-vs-concrete columns carry the same
-component, which is part of why the two differ by 0.002–0.007 there.
+that size or manufacture one. Any cross-package comparison at the CIF level
+carries the same component.
 
 **Not a defect in either package.** Neither grid is wrong; they are different
 conventions for where a step function is evaluated, and both converge to the same
 limit as the grid refines.
 
-## 9. The targeted update moves only the subjects observed in the arm it is updating
+## 8. Wald coverage: the shortfall is SE calibration, and it is confined to the pi-wrong cells
 
-**Status:** located, reproduced, and confirmed by a controlled experiment.
-Present in **both** PyTMLE and `concrete` 1.0.8, PyTMLE having inherited it.
-This is the cause of finding 7.
+**Status:** decomposed at n = 250, and resolved across the full factorial below.
 
-### The contradiction
-
-Both source papers say the substitution estimator is consistent in C5 (`Q` wrong,
-`pi` and `G` correct). Chen et al. Section 7.1 report exactly that. The algebra
-says why: for this parameter the second-order remainder is an **exact product**,
-
-```
-R2 = int E_L[ S0(t-) c_{j,l,t}(Q) (lam_l - lam_0l) (1 - (pi0/pi)(S0^c/S^c)) ] dt
-```
-
-so it vanishes for *any* `lambda`, however wrong, once `g` is correct. Study A
-measures +0.028, flat from n = 250 to n = 1000.
-
-### What it is not
-
-Each of these was measured, not argued:
-
-| candidate | test | result |
-|---|---|---|
-| targeting stops before solving the score | evaluate `Pn D*` at the final estimates | **solved**: mean \|Pn D*\| 0.0006-0.0018 against the loop's own threshold of 0.005-0.008; `frac_over_threshold` = 0.000. Adding the residual back changes the estimate by 0.0003. |
-| nuisance estimation error in `g` | rerun with **oracle** `pi` and `G`, making `R2` exactly zero | bias unchanged: 0.0181 / 0.0264 / 0.0319 against 0.0183 / 0.0277 / 0.0323 |
-| the path is traversed too coarsely | `one_step_eps` = 0.1 / 0.01 / 0.002, `max_updates` 2000 | 0.0264 / 0.0263 / 0.0263 -- no dependence at all |
-| mixing `S = exp(-Lambda)` with `F = sum S(t-) dLambda` | measure `sum_j F_j(tau) + S(tau) - 1` | real but an order of magnitude too small: mean 0.002 against a bias of 0.028 |
-
-### Where the bias is created
-
-With oracle `g` the identity `Psi(Q_eps) - psi_0 + Pn D*(Q_eps) = (Pn - P0) D*(Q_eps)`
-holds at every `eps`, so tracking that quantity along the path localises the
-damage exactly. Averaged over 24 replicates at n = 500, cause 1, tau = 1.15:
-
-| step | bias | `Pn D*` | `(Pn - P0) D*` |
-|---|---|---|---|
-| 0 | +0.0460 | -0.0408 | **+0.0053** (~0: this is why `aipw` is unbiased) |
-| 1 | +0.0292 | +0.0087 | **+0.0379** |
-| 40 | +0.0310 | -0.0000 | +0.0310 |
-
-**The whole bias appears in the first update step and never recovers.** One step
-moves the score by +0.0495 -- past zero, 121 % of what was needed -- while moving
-`Psi` by only -0.0168, 34 % as far. That ratio *is* finding 7's headline number:
-the update reaches "score solved" having carried the parameter about a third of
-the distance, and the other two thirds of the plug-in bias stays.
-
-### The cause
-
-`tmle_update.update_hazards` (and `concrete:::updateHazardsCpp`) fluctuates the
-hazard by `exp(eps * h)` with
-
-```
-h = g_star_obs * nuisance_weight * (1{l = j} - h_fs),     g_star_obs = 1{A_i = a*}
-```
-
-`g_star_obs` is the **observed** treatment indicator. Subjects with `A != a*`
-therefore get `h = 0` and their hazard is multiplied by `exp(0) = 1` -- never
-updated. That is correct in the *influence curve*, whose martingale term only
-runs over what was observed. It is not correct here: `est_a["Hazards"]` is the
-**counterfactual** hazard for arm `a*` (that is why there is one `Estimates`
-entry per intervention), and the plug-in averages `F_j(tau | a*, L_i)` over all
-`n` subjects -- of whom only the fraction in arm `a*` were moved.
-
-The indicator belongs to the fluctuation evaluated at `a = a*`, where it is
-`1{a* = a*} = 1` for everyone. **`concrete` stores precisely that quantity** and
-does not use it here:
-
-```
-A=1   g.star.intervention: values={1}   mean=1.000  |  g.star.obs: values={0,1}  mean=0.537
-A=0   g.star.intervention: values={1}   mean=1.000  |  g.star.obs: values={0,1}  mean=0.463
-```
-
-while `doTmleUpdate` passes `GStar = attr(est.a[["PropScore"]], "g.star.obs")`.
-
-### The controlled experiment
-
-Identical path, identical influence curve, 24 paired replicates, n = 500, oracle
-`g`, C5. The **only** change is the multiplier inside the update:
-
-| tau | `g.star.obs` (as shipped) | intervention indicator | MC-SE |
-|---|---|---|---|
-| 0.514 | +0.0190 | **-0.0003** | 0.005 |
-| 1.150 | +0.0310 | **+0.0029** | 0.007 |
-| 2.670 | +0.0329 | **+0.0007** | 0.009 |
-
-The bias vanishes -- every target within one Monte Carlo standard error of zero.
-The residual score is the same in both arms of the experiment (0.0008 / 0.0007 /
-0.0002), so both solve the efficient influence curve equation equally well. The
-difference is entirely *which subjects' counterfactual hazards get moved*.
-
-### Caveat for anyone acting on this
-
-The substitution is not free. Applying `1/pi(a*|L)` to every subject rather than
-only to those observed in the arm exposes the update to small propensities for
-subjects who were never in that arm: the experiment raised overflow warnings in
-`get_influence_curve.py:120` and lost 1 of 24 replicates. A real fix has to pair
-the intervention indicator with the truncation/stability handling, and should be
-validated against `concrete` -- which needs the same change.
-
-**Nothing in `pytmle/` was modified.** The experiment overrides the argument at
-the call site from `sim/`, leaving the package untouched.
-
-### Outcome of the fix (applied upstream; Study A n = 250, C1/C5/C7/C8, 500 reps)
-
-Both changes were made in `pytmle/tmle_update.py`: the intervention indicator in
-the update, and `h_fs` clipped to `[0, 1]`. The `g_star` parameter was dropped
-from `update_hazards` entirely.
-
-**The isolation is exact.** `gcomp`, `ipw` and `aipw` are bit-identical before
-and after across every paired replicate (max \|difference\| = 0.000e+00) -- none
-of them routes through `update_hazards`. Only `tmle` moves.
-
-| cell | bias before | bias after | median after | 1 %-trimmed after |
-|---|---|---|---|---|
-| C1 all correct | -0.0000 | +0.0020 | +0.0045 | +0.0026 |
-| **C5 `Q` wrong** | **+0.0282** | **-0.0149** | **+0.0005** | **-0.0010** |
-| C7 `Q`,`pi` wrong | +0.0266 | +0.0074 | +0.0060 | +0.0074 |
-| C8 all wrong | +0.0311 | +0.0160 | +0.0145 | +0.0160 |
-
-**The systematic bias is gone.** C5's median and trimmed mean land on zero, which
-is what double robustness predicts and what the pre-fix code never produced at
-any `n`. C7 and C8 improve by half; they retain legitimate bias, since `pi` and
-`G` are also wrong there and the theory offers no protection. Run health improved
-too: replicate failures fell from 1.0-6.2 % to 0.0-0.2 %, non-convergence from
-1.4-6.5 % to 0.8-4.4 %.
-
-**But two costs remain, and neither should be glossed.**
-
-*Rare divergence.* C5's untrimmed mean is `-0.0149` and its RMSE `0.279` --
-driven entirely by **2 replicates out of 500**, one reaching `-6.25`. Trimming
-1 % restores RMSE to `0.0489`, against `0.0474` pre-fix. The divergent replicates
-are not the ones with extreme propensities (their `ps_min` is 0.066 against
-0.0125 for the rest); they are the ones that **stop after 7 update steps instead
-of the usual 26**, converged flag set. So a single large early step lands
-somewhere that satisfies the stopping rule while being far from the truth. The
-`h_fs` clip bounds the clever covariate but not the cumulative movement, and the
-`||PnEIC||`-decrease guard does not catch it because the norm does decrease.
-
-*Variance and coverage.* Even trimmed, C1's RMSE rises from 0.0390 to 0.0465, and
-the influence-curve standard error stops tracking the spread: the ratio of mean
-SE to empirical SD falls from 1.19/1.27/1.14/1.14 (conservative) to
-0.86/0.24/0.91/0.92. Wald coverage falls accordingly -- C1 0.968 -> 0.921, C5
-0.952 -> 0.913, C7 0.929 -> 0.912, C8 0.907 -> 0.909. Some of this is the honest
-price of updating every subject rather than half of them, but a coverage of 0.92
-in the all-correct cell is a regression that needs resolving before the change
-can be called finished.
-
-Figures: `results/figures/fix_comparison.png` (bias, spread, coverage) and
-`results/figures/fix_replicates.png` (every replicate, with the off-scale ones
-flagged rather than dropped).
-
-### Final state of the fix (three changes, Study A n = 250, C1/C5/C7/C8, 500 reps)
-
-`pytmle/tmle_update.py` now carries three changes: the intervention indicator in
-`update_hazards`, `h_fs` clipped to `[0, 1]`, and `cif_within_bounds` used as a
-step-acceptance test that halves `working_eps` and retries -- reusing the
-backtracking the loop already had for the `||PnEIC||` test. The intermediate
-`+-5` clip on the exponent was tried and **removed**: it fixed C5 but created a
-`-38.7` estimate in C8 by altering the trajectory, which is what a fix that
-constrains the step rather than the estimate will do.
-
-| cell | bias before | bias after | RMSE before | RMSE after | divergent reps |
-|---|---|---|---|---|---|
-| C1 all correct | -0.0000 | +0.0022 | 0.0445 | 0.0549 | 0 |
-| **C5 `Q` wrong** | **+0.0282** | **+0.0026** | 0.0511 | 0.0549 | 0 |
-| C7 `Q`,`pi` wrong | +0.0266 | +0.0075 | 0.0501 | 0.0528 | 0 |
-| C8 all wrong | +0.0311 | +0.0161 | 0.0521 | 0.0532 | 0 |
-
-C5's bias falls by a factor of 11 (`z = -13.9`) and no cell has a single
-divergent replicate -- against 2 in C5 with the indicator fix alone and 1 in C8
-with the exponent clip. Replicate failures are 0.0 % everywhere, from 1.0-6.2 %
-originally. `gcomp`, `ipw` and `aipw` remain bit-identical to the original run.
-
-**The `min_nuisance` tolerance is not slack.** `tol = 1e-6`, the first value
-tried, rejected the *first step of every fit*: `S` is built as `exp(-Lambda)`
-while `F_j` accumulates as `sum S(t-) dLambda_j`, so the initial estimates
-already have a median `max_j sum F_j` of 1.02, reaching 1.075, before any
-targeting. Only 11.7 % of untargeted estimates passed. The symptom is silent --
-`steps = 0` and a "targeted" estimate exactly equal to the plug-in -- which is
-worth a warning in the fit path.
-
-**Non-convergence rose but is benign.** C1 5.5 % -> 17.2 %, C5 6.5 % -> 21.4 %:
-the guard rejects steps, so more fits exhaust `max_updates`. Splitting the bias
-by the flag shows the non-converged fits are *not* the bad ones --
-
-| cell | converged: reps / bias | non-converged: reps / bias |
-|---|---|---|
-| C1 | 414 / +0.0029 | 86 / **-0.0010** |
-| C5 | 393 / +0.0039 | 107 / **-0.0023** |
-| C7 | 489 / +0.0078 | 11 / -0.0035 |
-| C8 | 466 / +0.0159 | 34 / +0.0198 |
-
--- with comparable spread. They are stopped mid-descent, not failing. Raising
-`max_updates` is the remedy if the flag matters; the estimates do not need it.
-
-**The open item is coverage.** C1 0.968 -> 0.927, C5 0.952 -> 0.924, C7 0.929 ->
-0.913, C8 0.907 -> 0.909, with the SE/SD ratio moving from conservative
-(1.14-1.27) to roughly calibrated (0.91-0.97). So the intervals are no longer
-conservative and coverage sits 2-3 points below nominal even where the estimator
-is unbiased and correctly specified. That is a separate question from the bias
-this section is about, and it is unresolved.
-
-## 10. Post-fix Wald coverage: the shortfall is SE calibration, and the *pre*-fix coverage was two errors cancelling
-
-**Status:** decomposed at n = 250; the n-scaling that decides whether it needs a
-code change is pending.
-
-After the finding-9 fix, Wald coverage sits 2-3 points below nominal (C1 0.927,
-C5 0.924) where it had been at or above it (0.968, 0.952). Coverage can fall
-short from bias, from an under-stated standard error, or from non-normal tails,
-and these call for different responses, so they were separated: for each cell,
-the coverage a normal estimator with *that* bias and *that* SE ratio would attain
-was computed and compared with the observed value.
+Wald coverage sits 2-3 points below nominal in the all-correct and `Q`-wrong
+cells (C1 0.927, C5 0.924). Coverage can fall short from bias, from an
+under-stated standard error, or from non-normal tails, and these call for
+different responses, so they were separated: for each cell, the coverage a normal
+estimator with *that* bias and *that* SE ratio would attain was computed and
+compared with the observed value.
 
 | cell | bias | SE/SD | coverage | coverage if the SE were exact |
 |---|---|---|---|---|
@@ -533,19 +243,10 @@ would be 0.950 exactly. The whole shortfall is the influence-curve SE
 understating the estimator's spread by 3-9 %. Excess kurtosis is between -0.03
 and 0.16, so tails are not the explanation either.
 
-The mechanism is visible directly: the fix leaves `mean_se` *unchanged* (C1 at
-tau = 2.67: 0.0633 before and after) while the empirical SD rises from 0.0550 to
-0.0670. The influence curve is a function of the nuisances and the data; it does
-not see the extra variability introduced by a targeting step that now moves three
-times as far.
-
-**The pre-fix coverage was not what it looked like.** Pre-fix C5 coverage of
-0.952 came with an SE ratio of **1.27** -- intervals 27 % too wide -- against a
-bias of +0.028. With a calibrated SE, pre-fix C5 coverage would have been
-**0.897**. The apparently-nominal coverage was an over-wide interval compensating
-for a mis-centred one. So the before/after comparison is not "coverage got
-worse"; it is *biased with intervals that hid it* against *unbiased with
-intervals ~5 % too narrow*.
+The mechanism is visible directly: at C1, tau = 2.67, the mean influence-curve
+SE is 0.0633 against an empirical SD of 0.0670. The influence curve is a function
+of the nuisances and the data; it does not see the extra variability introduced by
+a targeting step that moves every subject's counterfactual hazard.
 
 **What decides the response.** If the excess variance is the finite-sample price
 of data-adaptive targeting, the SE ratio should approach 1 with `n`. The n = 500
@@ -590,7 +291,7 @@ caveat on interval interpretation.
 
 ---
 
-## 11. The bootstrap's `Converged` filter was selection on the outcome
+## 9. The bootstrap's `Converged` filter was selection on the outcome
 
 **Status:** confirmed at full scale, **fixed** — the filter has been commented out
 of `pytmle/bootstrap.py`.
@@ -639,7 +340,7 @@ exhausted the update budget, and `pct_strict`, dropping both) are worse still.
 
 ---
 
-## 12. Correlating the noise covariates is inert, and the reason is structural
+## 10. Correlating the noise covariates is inert, and the reason is structural
 
 **Status:** measured, sub-axis dropped from the design, lever retained and pinned
 by a test.
@@ -669,16 +370,16 @@ future reader does not re-run the experiment.
 
 ---
 
-## 13. PyTMLE and concrete solve the same estimating equation, to their own tolerance
+## 11. PyTMLE and concrete solve the same estimating equation, to their own tolerance
 
 **Status:** measured across the full Study C run (500 / 500 / 150 replicates at
 n = 500 / 1000 / 2000), with byte-identical injected nuisances on both sides.
 
-FINDINGS 8 established that the two packages agree on the *targeting increment*
-but not the CIF level, and FINDINGS 9 that concrete 1.0.8 carries the
-`g.star.obs` defect. Neither says whether the two are solving the same estimating
-equation, because a point estimate cannot distinguish "same algorithm" from "same
-answer". Extracting the post-update `SummEIC` from both settles it.
+FINDINGS 7 established that the two packages agree on the *targeting increment*
+but not the CIF level, because the two build different time grids. That says
+nothing about whether they are solving the same estimating equation: a point
+estimate cannot distinguish "same algorithm" from "same answer". Extracting the
+post-update `SummEIC` from both settles it.
 
 Merging on `(rep, time, event, arm)` matches **9000 of 9000** rows at each of the
 two large sizes, and:
@@ -701,12 +402,10 @@ So the score comparison is not "do the two agree" -- they cannot agree to better
 than the stopping rule permits -- but "does each solve its own criterion, and is
 the gap bounded by that criterion". Both hold.
 
-The `seEIC` agreement at ~1e-4 is the stronger practical result: the FINDINGS 9
-defect moves `Psi` through the targeted update but does **not** touch the
-influence curve, so the standard errors agree three orders of magnitude better
-than the point estimates do. `TIERS` now pins `tol_se = 2e-3` with
-`expect_se = "agree"` for this pair, separately from the point estimate's
-`expect = "diverge"`.
+The `seEIC` agreement at ~1e-4 is the stronger practical result: both packages
+build the influence curve with the same formula, so the standard errors agree to
+that level independently of the targeting update. `TIERS` pins `tol_se = 2e-3`
+with `expect_se = "agree"` for this pair.
 
 ### A step-counting convention that would have corrupted the runtime comparison
 
@@ -725,7 +424,7 @@ implementation across `n`.
 
 ---
 
-## 14. PyTMLE's IPW standard error is conservative: it treats the weights as known
+## 12. PyTMLE's IPW standard error is conservative: it treats the weights as known
 
 **Status:** measured and **explained**. A real conservatism in `sim/estimators.py`
 `run_ipw`, confirmed against the empirical sampling distribution.
@@ -782,7 +481,7 @@ makes `aipw` agree with `ate:AIPTW` to 2.4e-03.
 
 ---
 
-## 15. PyTMLE's second stage really is 3-4x slower than concrete's, and it is all per-cell cost
+## 13. PyTMLE's second stage really is 3-4x slower than concrete's, and it is all per-cell cost
 
 **Status:** measured under verified single-thread, serialised, idle conditions.
 This **refutes** the expectation the benchmark was built on. Corrected once on
@@ -827,7 +526,7 @@ Two things the normalisation shows that raw seconds do not:
    rising, 1026 -> 1011 -> 1113 ns. That is why the headline ratio widens with
    `n`.
 2. **Per-step figures flatter concrete by ~8 %.** The step counts are on
-   different conventions (FINDINGS 13): concrete reports one more at every size
+   different conventions (FINDINGS 11): concrete reports one more at every size
    (12.5 / 12.5 / 13 against 11.5 / 11.5 / 12). `median_s_per_step` is therefore
    *not* a like-for-like cross-package number; per-fit seconds is.
 
@@ -869,7 +568,7 @@ recorded the working grid correctly all along.
 
 ---
 
-## 16. The reverse-percentile interval is free, and it reverses the recommendation
+## 14. The reverse-percentile interval is free, and it reverses the recommendation
 
 **Status:** measured, derived from stored output at zero compute cost.
 
@@ -920,7 +619,7 @@ re-running the fits again.
 
 ---
 
-## 17. The bias-corrected bootstrap corrects in the wrong direction under poor overlap
+## 15. The bias-corrected bootstrap corrects in the wrong direction under poor overlap
 
 **Status:** measured on the six re-run bootstrap cells (2026-09-13) and diagnosed
 from their archived draws. Decides the shipped construction: percentile stays

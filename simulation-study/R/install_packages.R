@@ -7,7 +7,7 @@
 # concrete::: internals whose structure is checked at runtime, and a different
 # version could change it.
 
-CONCRETE_PINNED <- "1.0.8"
+CONCRETE_PINNED <- "1.1.0"
 
 need <- c(
   survival = "survival",

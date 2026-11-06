@@ -1,0 +1,60 @@
+[sim.study_b] BS12_n250_oracle: n=250 arm=oracle reps=250 B=100
+  [BS12_n250_oracle] shard 1/13
+  [BS12_n250_oracle] shard 2/13
+  [BS12_n250_oracle] shard 3/13
+  [BS12_n250_oracle] shard 4/13
+  [BS12_n250_oracle] shard 5/13
+  [BS12_n250_oracle] shard 6/13
+  [BS12_n250_oracle] shard 7/13
+  [BS12_n250_oracle] shard 8/13
+  [BS12_n250_oracle] shard 9/13
+  [BS12_n250_oracle] shard 10/13
+  [BS12_n250_oracle] shard 11/13
+  [BS12_n250_oracle] shard 12/13
+  [BS12_n250_oracle] shard 13/13
+[sim.study_b] B_OV2_n250_correct: n=250 arm=correct reps=150 B=100
+  [B_OV2_n250_correct] shard 1/8
+  [B_OV2_n250_correct] shard 2/8
+  [B_OV2_n250_correct] shard 3/8
+  [B_OV2_n250_correct] shard 4/8
+  [B_OV2_n250_correct] shard 5/8
+  [B_OV2_n250_correct] shard 6/8
+  [B_OV2_n250_correct] shard 7/8
+  [B_OV2_n250_correct] shard 8/8
+[sim.study_b] B_OV3_n250_correct: n=250 arm=correct reps=150 B=100
+  [B_OV3_n250_correct] shard 1/8
+  [B_OV3_n250_correct] shard 2/8
+  [B_OV3_n250_correct] shard 3/8
+  [B_OV3_n250_correct] shard 4/8
+  [B_OV3_n250_correct] shard 5/8
+  [B_OV3_n250_correct] shard 6/8
+  [B_OV3_n250_correct] shard 7/8
+  [B_OV3_n250_correct] shard 8/8
+[sim.study_b] B_RA2_n250_correct: n=250 arm=correct reps=150 B=100
+  [B_RA2_n250_correct] shard 1/8
+  [B_RA2_n250_correct] shard 2/8
+  [B_RA2_n250_correct] shard 3/8
+  [B_RA2_n250_correct] shard 4/8
+  [B_RA2_n250_correct] shard 5/8
+  [B_RA2_n250_correct] shard 6/8
+  [B_RA2_n250_correct] shard 7/8
+  [B_RA2_n250_correct] shard 8/8
+[sim.study_b] B_OV4_n250_correct: n=250 arm=correct reps=150 B=100
+  [B_OV4_n250_correct] shard 1/8
+  [B_OV4_n250_correct] shard 2/8
+  [B_OV4_n250_correct] shard 3/8
+  [B_OV4_n250_correct] shard 4/8
+  [B_OV4_n250_correct] shard 5/8
+  [B_OV4_n250_correct] shard 6/8
+  [B_OV4_n250_correct] shard 7/8
+  [B_OV4_n250_correct] shard 8/8
+[sim.study_b] B_RA3_n250_correct: n=250 arm=correct reps=150 B=100
+  [B_RA3_n250_correct] shard 1/8
+  [B_RA3_n250_correct] shard 2/8
+  [B_RA3_n250_correct] shard 3/8
+  [B_RA3_n250_correct] shard 4/8
+  [B_RA3_n250_correct] shard 5/8
+  [B_RA3_n250_correct] shard 6/8
+  [B_RA3_n250_correct] shard 7/8
+  [B_RA3_n250_correct] shard 8/8
+[sim.study_b] done

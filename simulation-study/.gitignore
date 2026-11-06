@@ -1,4 +1,9 @@
-results/
+results/**/*.parquet
+results/validation/
+results/*_pilot/
+results/*_old/
+results/*_backup_*/
+results/*_archive_*/
 __pycache__/
 *.pyc
 .pytest_cache/

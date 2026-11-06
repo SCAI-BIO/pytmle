@@ -168,7 +168,7 @@ def plot_score(score: pd.DataFrame, out: Path) -> Path:
     """Did each implementation solve its own score equation, and how far?
 
     `|Pn D*|` against the criterion each package stops on. Dimensionless, so the
-    two are comparable at every n, and free of the FINDINGS 8 grid offset -- that
+    two are comparable at every n, and free of the FINDINGS 7 grid offset -- that
     shifts the CIF level in both estimators alike but is not a property of the
     score. A point below 1 has met its own stopping rule.
 

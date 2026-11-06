@@ -7,7 +7,7 @@ nuisances, so a disagreement is an implementation difference and nothing else.
 The tolerance depends on the tier (see `sim/study_c.py`), and for `concrete` the
 gate is the *targeting increment* rather than the CIF level: the two build
 different time grids, which shifts the plug-in by ~1e-3 in both `tmle` and
-`gcomp` alike and has nothing to do with the update step (FINDINGS 8).
+`gcomp` alike and has nothing to do with the update step (FINDINGS 7).
 
 **Then, how do the estimators perform?** Bias, coverage and RMSE against the
 closed-form truth, on the risk-difference scale, for every estimator that targets
@@ -30,60 +30,61 @@ import pandas as pd
 from .dgp import get_config
 from .metrics import summarise, truth_long
 from .study_c import CONFIG, collect_study_c
+from .tables import _to_markdown
 from .truth import cached_truth
 
 __all__ = ["agreement", "score_panel", "performance", "build"]
+
+
+def _markdown(df: pd.DataFrame) -> str:
+    """Pipe table, falling back when pandas' optional ``tabulate`` is absent."""
+    try:
+        return df.to_markdown(index=False)
+    except ImportError:
+        return _to_markdown(df)
 
 #: Reference implementation every other row is compared against. PyTMLE is the
 #: package under study, so it is the baseline by definition, not by merit.
 REFERENCE = "tmle"
 
 #: Which comparison each implementation is entitled to, at what tolerance, and
-#: -- since one row is now expected to *disagree* -- what agreement would mean.
-#: Stated as data rather than prose so the gate cannot drift from the write-up.
+#: what agreement means. Stated as data rather than prose so the gate cannot
+#: drift from the write-up.
 #:
-#: `expect="diverge"` is not a way of excusing a failure. Before the
-#: targeted-update fix (FINDINGS 9) PyTMLE and concrete agreed on the targeting
-#: increment to 0.00018, which is what justified the 2e-3 tolerance. PyTMLE has
-#: since been fixed and concrete 1.0.8 has not, so the two now differ by roughly
-#: the size of the defect, and *agreement* would be the result worth
-#: investigating. The check still runs; only its expected direction changed.
+#: Both point estimates are compared on the targeting increment where the
+#: quantity allows it: differencing `tmle - gcomp` across packages cancels the
+#: grid offset, which is a property of the CIF level. For `concrete` the
+#: increment agreement runs 1.9e-4 / 5.8e-5 / 2.0e-5.
 TIERS: Dict[str, Dict] = {
     # `tol_se` is pinned from the first fully instrumented run (500/500/150
-    # replicates at n = 500/1000/2000). The SE agrees far better than the point
-    # estimate does, which is the expected shape: the FINDINGS 9 defect moves
-    # `Psi` through the targeted update, but both packages build the influence
-    # curve with the same formula, so the SE is untouched by it. Observed mean
-    # |log ratio|: 6.6e-4, 3.3e-4, 1.6e-4 -- shrinking as O(1/n) and three times
-    # inside the tolerance at the worst size.
+    # replicates at n = 500/1000/2000). Both packages build the influence curve
+    # with the same formula, so the SE agrees independently of the targeting
+    # update. Observed mean |log ratio|: 6.9e-4, 3.3e-4, 1.6e-4 -- shrinking as
+    # O(1/n) and three times inside the tolerance at the worst size.
     "tmle (concrete)": dict(tier=1, tol=2e-3, tol_se=2e-3, expect_se="agree",
                             against="tmle", increment=True,
-                            expect="diverge",
-                            note="concrete 1.0.8 still carries the FINDINGS 9 "
-                                 "defect; divergence here is the expected result "
-                                 "and its size estimates the defect",
+                            expect="agree",
+                            note="agrees on the targeting increment; the "
+                                 "residual is numerical",
                             note_se="same IC formula on both sides, so the SE "
-                                    "must agree even though the point estimate "
-                                    "diverges",
+                                    "must agree",
                             # The real gate on the score is not a cross-package
                             # tolerance but each package's own stopping rule,
                             # `|PnEIC| <= seEIC/(sqrt(n) log n)` -- both satisfy
                             # it on 100 % of targets and no row's cross-package
                             # difference exceeds it (see `score_panel` and
-                            # FINDINGS 13). This tolerance is the coarser
+                            # FINDINGS 11). This tolerance is the coarser
                             # companion check on the paired mean, which runs
-                            # 2.2e-05 / 2.6e-06 / 2.4e-06.
+                            # 2.3e-05 / 3.0e-06 / 2.4e-06.
                             tol_pn_eic=1e-3, expect_pn_eic="agree",
                             note_pn_eic="both solve their own stopping "
                                         "criterion; the residual gap is the "
                                         "width of that band, not a discrepancy"),
-    # The plug-in involves no targeting, so it is unaffected by the defect and
-    # must still agree. It is the control that shows the divergence above is the
-    # update step rather than the bridge.
+    # The plug-in involves no targeting. It is the control that shows the
+    # comparison above is the update step rather than the bridge.
     "gcomp (concrete)": dict(tier=1, tol=5e-3, against="gcomp", increment=False,
                              expect="agree",
-                             note="plug-in on concrete's coarser grid; unaffected "
-                                  "by the targeted-update defect, so this must agree"),
+                             note="plug-in on concrete's coarser grid"),
     "ate:GFORMULA": dict(expect="agree", tier=2, tol=1e-2, against="gcomp", increment=False,
                          note="exact Aalen-Johansen vs discrete plug-in"),
     # The point estimates agree to 1.6e-5 and the standard errors do not: a
@@ -94,7 +95,7 @@ TIERS: Dict[str, Dict] = {
     # over-covers up to 0.986). `run_ipw` treats the weights as **known**, and an
     # IPW estimator with estimated propensities has a *smaller* asymptotic
     # variance than one using the true ones, so treating them as known overstates
-    # it. See FINDINGS 14.
+    # it. See FINDINGS 12.
     "ate:IPTW": dict(expect="agree", tier=2, tol=1e-2, against="ipw", increment=False,
                      note="",
                      tol_se=1e-2, expect_se="diverge",
@@ -111,7 +112,7 @@ TIERS: Dict[str, Dict] = {
 #:
 #: `est`  absolute difference, and the only one entitled to the targeting-
 #:        increment trick: differencing `tmle - gcomp` across packages cancels
-#:        the grid offset of FINDINGS 8, which is a property of the CIF *level*.
+#:        the grid offset of FINDINGS 7, which is a property of the CIF *level*.
 #: `se`   the ratio, on the log scale. A standard error scales as n^-1/2, so an
 #:        absolute tolerance would silently loosen at n = 500 and tighten at
 #:        n = 2000 while appearing to be one gate. The increment is undefined:
@@ -181,12 +182,10 @@ def agreement(d: pd.DataFrame, event: Optional[int] = None,
     for name, cfg in TIERS.items():
         base = cfg["against"]
         tol = cfg.get(f"tol_{quantity}", cfg["tol"] if quantity == "est" else np.nan)
-        # `expect` is per *quantity*, not per implementation. concrete is the
-        # case that forces this: its point estimate is expected to diverge
-        # (FINDINGS 9 moves Psi) while its standard error is expected to agree,
-        # because the two packages compute the IC with the same formula and the
-        # defect does not touch it. A single shared `expect` would score the
-        # SE's 6.6e-4 agreement as a failure.
+        # `expect` is per *quantity*, not per implementation. A comparison may
+        # be expected to agree on one quantity and diverge on another -- the
+        # IPW standard error is the case that forces this -- so a single shared
+        # `expect` would mislabel one of them.
         exp = cfg.get(f"expect_{quantity}", cfg.get("expect", "agree"))
         common = dict(implementation=name, vs=base, tier=cfg["tier"],
                       quantity=quantity, statistic=spec["statistic"],
@@ -204,7 +203,7 @@ def agreement(d: pd.DataFrame, event: Optional[int] = None,
             continue
 
         # `increment` is a property of the *estimate* comparison -- it cancels
-        # the FINDINGS 8 grid offset in the CIF level. For the standard error
+        # the FINDINGS 7 grid offset in the CIF level. For the standard error
         # and the score it is undefined, so those fall through to a level
         # comparison rather than being skipped: refusing here would drop the
         # single most valuable SE comparison in the study, tmle vs concrete.
@@ -318,7 +317,7 @@ def score_panel(eic: pd.DataFrame) -> pd.DataFrame:
     each one actually got, measured against the criterion it stops on --
     `|PnEIC| <= seEIC/(sqrt(n) log n)`, which both compute identically.
 
-    That ratio is dimensionless and free of the grid offset (FINDINGS 8), which
+    That ratio is dimensionless and free of the grid offset (FINDINGS 7), which
     shifts the CIF level in both estimators alike but is not a property of the
     score. So it is a cleaner read on the targeting step than the estimate scale
     can give.
@@ -398,7 +397,7 @@ def build(dirs: Sequence[Path | str], out_dir: Path | str = "results/study_c",
     for name, t in tabs.items():
         if len(t):
             t.to_csv(out_dir / f"study_c_{name}.csv", index=False)
-            (out_dir / f"study_c_{name}.md").write_text(t.to_markdown(index=False))
+            (out_dir / f"study_c_{name}.md").write_text(_markdown(t))
 
     bench_f = out_dir / "_bench" / "bench_stage2.parquet"
     if bench_f.exists():
@@ -407,7 +406,7 @@ def build(dirs: Sequence[Path | str], out_dir: Path | str = "results/study_c",
         if len(rt):
             tabs["runtime"] = rt
             rt.to_csv(out_dir / "study_c_runtime.csv", index=False)
-            (out_dir / "study_c_runtime.md").write_text(rt.to_markdown(index=False))
+            (out_dir / "study_c_runtime.md").write_text(_markdown(rt))
 
     # the marginal truth, for the panel that sets the hazard ratio beside it
     from .plots_study_c import make_all_c

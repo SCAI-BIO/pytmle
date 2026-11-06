@@ -16,10 +16,7 @@
 #
 # `concrete_reps` runs concrete's second stage on the first 150 replicates of
 # every cell, on the same seeds and the same injected nuisances, as part of this
-# same run. concrete 1.0.8 still carries the targeted-update defect that
-# FINDINGS 9 describes and PyTMLE has fixed, so the two agree in C1-C4 (where
-# the update barely moves) and separate in C5-C8. That separation is a result,
-# not a discrepancy to reconcile.
+# same run, so the two implementations are compared on identical inputs.
 #
 # min_nuisance is pinned at 0.01, which is meaningful again now that the bug in
 # tmle_update.py:210 is fixed -- though the denominators sit above 0.12 here, so

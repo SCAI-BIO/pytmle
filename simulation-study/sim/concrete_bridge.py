@@ -34,7 +34,7 @@ from .runner import Cell, target_times_for
 
 __all__ = ["cell_seeds", "run_cell_concrete"]
 
-RSCRIPT = "/home/jguski/.conda/envs/pytmle-sim/bin/Rscript"
+RSCRIPT = "/home/jbarking/.conda/envs/pytmle-sim/bin/Rscript"
 
 
 def cell_seeds(cell_name: str, reps: int, master_seed: int = 20250301):

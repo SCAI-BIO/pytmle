@@ -216,9 +216,8 @@ def _attach_score(out: pd.DataFrame, model, key_1: int = 1, key_0: int = 0) -> p
 
     The score is what distinguishes "the same algorithm" from "the same answer".
     Two implementations can agree on Psi while driving different estimating
-    equations to zero -- FINDINGS 9 is exactly that case -- so a cross-package
-    comparison that only differences point estimates cannot see the difference
-    that matters.
+    equations to zero, so a cross-package comparison that only differences point
+    estimates cannot see the difference that matters.
 
     `summ_eic` is the *post-update* summary: `get_eic` recomputes it on every
     accepted step, so after `fit()` it is `Pn D*(Q*)`. Columns `PnEIC`, `seEIC`
